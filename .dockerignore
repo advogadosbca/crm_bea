@@ -6,6 +6,8 @@ node_modules
 server.err.log
 .env*
 *.mjs
+!postcss.config.mjs
+!eslint.config.mjs
 Dockerfile
 .dockerignore
 docker-compose.yml
