@@ -21,16 +21,10 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Verificação rápida e LOCAL do token (sem ida à rede). Só cai pro getUser
-  // (que renova o token) quando o claim está ausente/expirado.
-  let userId: string | undefined
-  const { data: claimData } = await supabase.auth.getClaims()
-  userId = claimData?.claims?.sub as string | undefined
-  if (!userId) {
-    const { data: { user } } = await supabase.auth.getUser()
-    userId = user?.id
-  }
-  const isAuthed = !!userId
+  // Valida a sessão via getUser (usa a URL interna do Docker — rápido e sem
+  // hairpin pela URL pública, que o getClaims faria ao buscar o JWKS do issuer).
+  const { data: { user } } = await supabase.auth.getUser()
+  const isAuthed = !!user
 
   const path = request.nextUrl.pathname
   const isPublic = path.startsWith('/login') || path.startsWith('/forgot-password') || path.startsWith('/reset-password') || path.startsWith('/definir-senha') || path.startsWith('/auth')
