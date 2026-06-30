@@ -1,0 +1,27 @@
+services:
+  crm:
+    build:
+      context: .
+      args:
+        # públicas — embutidas no build
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    image: crm-bernardes:latest
+    container_name: crm-bernardes
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      # SECRETA — só no servidor, nunca exposta ao navegador
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    ports:
+      # host:container — ajuste a porta do host conforme sua VPS / reverse proxy
+      - "3010:3000"
+    # Se você usa um reverse proxy (Traefik / Nginx Proxy Manager) numa rede própria,
+    # conecte o container nessa rede e aponte o proxy para a porta 3000 do container.
+    # networks:
+    #   - proxy
+
+# networks:
+#   proxy:
+#     external: true
