@@ -9,6 +9,7 @@ export async function createServerSupabaseClient() {
     url,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: { name: 'sb-crm-auth' },
       cookies: {
         getAll() { return cookieStore.getAll() },
         setAll(cookiesToSet) {
