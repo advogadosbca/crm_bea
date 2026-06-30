@@ -14,14 +14,26 @@ services:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       # SECRETA — só no servidor, nunca exposta ao navegador
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-    ports:
-      # host:container — ajuste a porta do host conforme sua VPS / reverse proxy
-      - "3010:3000"
-    # Se você usa um reverse proxy (Traefik / Nginx Proxy Manager) numa rede própria,
-    # conecte o container nessa rede e aponte o proxy para a porta 3000 do container.
-    # networks:
-    #   - proxy
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      # roteamento HTTPS
+      - "traefik.http.routers.crm.rule=Host(`${CRM_DOMAIN}`)"
+      - "traefik.http.routers.crm.entrypoints=websecure"
+      - "traefik.http.routers.crm.tls=true"
+      - "traefik.http.routers.crm.tls.certresolver=${TRAEFIK_CERTRESOLVER}"
+      - "traefik.http.services.crm.loadbalancer.server.port=3000"
+      # redireciona HTTP -> HTTPS
+      - "traefik.http.routers.crm-http.rule=Host(`${CRM_DOMAIN}`)"
+      - "traefik.http.routers.crm-http.entrypoints=web"
+      - "traefik.http.routers.crm-http.middlewares=crm-redirect"
+      - "traefik.http.middlewares.crm-redirect.redirectscheme.scheme=https"
+      # informa ao Traefik em qual rede falar com este container
+      - "traefik.docker.network=traefik"
 
-# networks:
-#   proxy:
-#     external: true
+# rede externa onde o Traefik já está rodando.
+# Ajuste o nome se a sua rede do Traefik tiver outro nome (ex.: proxy, web).
+networks:
+  traefik:
+    external: true
