@@ -1,26 +1,28 @@
 version: "3.7"
 
-# Stack do CRM Bernardes & Azevedo para Docker Swarm + Traefik (Portainer)
+# Stack do CRM Bernardes & Azevedo — Docker Swarm + Traefik (Portainer)
 #
-# IMPORTANTE: o Swarm NÃO builda a imagem. Antes de deployar esta stack,
-# gere a imagem na VPS (ver DEPLOY.md, seção "VPS / Swarm"):
+# A imagem é publicada automaticamente no GHCR pelo GitHub Actions a cada push
+# na branch main (.github/workflows/deploy.yml). Esta stack só PUXA a imagem.
 #
-#   docker build \
-#     --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
-#     --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
-#     -t crm-bernardes:latest .
+# Pré-requisito no Portainer (uma vez): cadastrar o registry GHCR
+#   Registries -> Add registry -> Custom:
+#     URL: ghcr.io  |  Usuário: <seu_usuario_github>  |  Senha: <PAT com read:packages>
+# (ou tornar o pacote ghcr.io/advogadosbca/crm_bea público).
 #
-# As variáveis NEXT_PUBLIC_* e SUPABASE_SERVICE_ROLE_KEY devem ser definidas
-# na aba "Environment variables" da stack no Portainer.
+# Em "Environment variables" da stack, defina apenas:
+#   SUPABASE_SERVICE_ROLE_KEY=eyJ...service_role...   (SECRETA)
 
 services:
   crm:
-    image: crm-bernardes:latest
+    image: ghcr.io/advogadosbca/crm_bea:latest
     networks:
       - network_swarm_public
     environment:
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      # públicas (seguras)
+      - NEXT_PUBLIC_SUPABASE_URL=https://muxsyyezvcvggyimgxsl.supabase.co
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11eHN5eWV6dmN2Z2d5aW1neHNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTcwMTQsImV4cCI6MjA5Nzk3MzAxNH0.Ay1S5WS4GZePRCZQiqYhoaWdf3d-uKhda3cmIsjvyaU
+      # secreta — defina em Environment variables da stack
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - PORT=3000
       - HOSTNAME=0.0.0.0
