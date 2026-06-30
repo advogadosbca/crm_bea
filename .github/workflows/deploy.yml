@@ -34,5 +34,5 @@ jobs:
             ghcr.io/advogadosbca/crm_bea:${{ github.sha }}
           # NEXT_PUBLIC_* são públicas (vão para o navegador) — ok ficarem aqui.
           build-args: |
-            NEXT_PUBLIC_SUPABASE_URL=https://muxsyyezvcvggyimgxsl.supabase.co
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11eHN5eWV6dmN2Z2d5aW1neHNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTcwMTQsImV4cCI6MjA5Nzk3MzAxNH0.Ay1S5WS4GZePRCZQiqYhoaWdf3d-uKhda3cmIsjvyaU
+            NEXT_PUBLIC_SUPABASE_URL=https://api-crm.bernardeseazevedo.com.br
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgyODQwMjA2LCJleHAiOjIwOTgyMDAyMDZ9.DGPIJBgGBGRqVy0WzxgCAMmSwsw69EwTReEieHNU9Ko
