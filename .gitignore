@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # scripts de migração/debug na raiz (contêm chaves) — manter fora do repo
 /*.mjs
