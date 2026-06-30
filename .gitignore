@@ -36,6 +36,7 @@ yarn-error.log*
 # scripts de migração/debug na raiz (contêm chaves) — manter fora do repo
 /*.mjs
 !eslint.config.mjs
+!postcss.config.mjs
 
 # logs
 *.log
