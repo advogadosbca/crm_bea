@@ -21,17 +21,26 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Verificação rápida e LOCAL do token (sem ida à rede). Só cai pro getUser
+  // (que renova o token) quando o claim está ausente/expirado.
+  let userId: string | undefined
+  const { data: claimData } = await supabase.auth.getClaims()
+  userId = claimData?.claims?.sub as string | undefined
+  if (!userId) {
+    const { data: { user } } = await supabase.auth.getUser()
+    userId = user?.id
+  }
+  const isAuthed = !!userId
 
   const path = request.nextUrl.pathname
   const isPublic = path.startsWith('/login') || path.startsWith('/forgot-password') || path.startsWith('/reset-password') || path.startsWith('/definir-senha') || path.startsWith('/auth')
 
-  if (!user && !isPublic) {
+  if (!isAuthed && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
   // logado tentando acessar login/forgot vai pro app; reset/definir-senha são permitidos mesmo logado (sessão de convite/recuperação)
-  if (user && (path.startsWith('/login') || path.startsWith('/forgot-password'))) {
+  if (isAuthed && (path.startsWith('/login') || path.startsWith('/forgot-password'))) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
