@@ -1,0 +1,55 @@
+version: "3.7"
+
+# Stack do CRM Bernardes & Azevedo para Docker Swarm + Traefik (Portainer)
+#
+# IMPORTANTE: o Swarm NÃO builda a imagem. Antes de deployar esta stack,
+# gere a imagem na VPS (ver DEPLOY.md, seção "VPS / Swarm"):
+#
+#   docker build \
+#     --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+#     --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+#     -t crm-bernardes:latest .
+#
+# As variáveis NEXT_PUBLIC_* e SUPABASE_SERVICE_ROLE_KEY devem ser definidas
+# na aba "Environment variables" da stack no Portainer.
+
+services:
+  crm:
+    image: crm-bernardes:latest
+    networks:
+      - network_swarm_public
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - NODE_ENV=production
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.crm.rule=Host(`crm.bernardeseazevedo.com.br`)
+        - traefik.http.routers.crm.entrypoints=websecure
+        - traefik.http.routers.crm.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.crm.service=crm
+        - traefik.http.services.crm.loadbalancer.server.port=3000
+        - traefik.http.services.crm.loadbalancer.passHostHeader=true
+      update_config:
+        parallelism: 1
+        delay: 15s
+        order: start-first
+        failure_action: rollback
+
+networks:
+  network_swarm_public:
+    name: network_swarm_public
+    external: true
