@@ -123,7 +123,9 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     }
     const v = value as string
     return <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={() => setEditing(true)}>
-      {v ? new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR', config.withTime ? { dateStyle: 'short', timeStyle: 'short' } : undefined) : ''}
+      {v ? (config.withTime
+        ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+        : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')) : ''}
     </div>
   }
 
