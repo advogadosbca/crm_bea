@@ -36,3 +36,14 @@ jobs:
           build-args: |
             NEXT_PUBLIC_SUPABASE_URL=https://api-crm.bernardeseazevedo.com.br
             NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgyODQwMjA2LCJleHAiOjIwOTgyMDAyMDZ9.DGPIJBgGBGRqVy0WzxgCAMmSwsw69EwTReEieHNU9Ko
+
+      # Dispara o redeploy no Portainer (re-puxa a :latest e reinicia o serviço)
+      - name: Redeploy no Portainer
+        env:
+          WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK }}
+        run: |
+          if [ -n "$WEBHOOK" ]; then
+            curl -fsS -X POST "$WEBHOOK" && echo "✅ Redeploy disparado" || echo "⚠️ Webhook falhou"
+          else
+            echo "PORTAINER_WEBHOOK não definido — pulando redeploy automático"
+          fi
