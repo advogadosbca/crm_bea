@@ -61,7 +61,7 @@ export default async function FinanceiroLayout({ children }: { children: React.R
         gradient="linear-gradient(135deg, #064e3b 0%, #065f46 60%, #064e3b 100%)" />
       <div className="px-16 py-6">
         <FinanceiroResumo entries={entries} />
-        <FinanceiroTabs tabs={tabs} />
+        <FinanceiroTabs tabs={tabs} workspaceId={profile?.workspace_id || ''} />
         {children}
       </div>
     </div>
