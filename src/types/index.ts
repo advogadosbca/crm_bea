@@ -148,9 +148,20 @@ export interface Transacao {
   cobranca_status?: string
   pendencias?: boolean
   follow?: boolean
+  area?: string
+  canal?: string
   created_at: string
   contact?: { name: string; telefone?: string } | null
 }
+
+export const AREA_OPTIONS = [
+  'Cível', 'Criminal', 'Diligências', 'Empresarial', 'Família', 'Mensalista',
+  'Parceria', 'Previdenciário', 'Trabalhista', 'Tributário', 'Imobiliário',
+  'Trânsito', 'Ambiental', 'Bancário',
+]
+export const CANAL_OPTIONS = [
+  'Face ADS', 'Google ADS', 'Orgânico', 'Indicação', 'BNI', 'Parceria', 'G4', 'ACID',
+]
 
 export const COBRANCA_STATUS_OPTIONS = ['Pendente', 'Cobrança Gerada', 'Pago', 'Atrasado']
 
