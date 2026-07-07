@@ -30,6 +30,26 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
   const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null)
   const [calc, setCalc] = useState<Record<string, Calc>>({})
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
+  const [dragCol, setDragCol] = useState<string | null>(null)
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null)
+
+  // reordena colunas (arrastar-e-soltar) e persiste as posições
+  async function moveColumn(fromId: string, toId: string) {
+    if (fromId === toId) return
+    const ordered = [...columns].sort((a, b) => a.position - b.position)
+    const from = ordered.findIndex(c => c.id === fromId)
+    const to = ordered.findIndex(c => c.id === toId)
+    if (from < 0 || to < 0) return
+    const [moved] = ordered.splice(from, 1)
+    ordered.splice(to, 0, moved)
+    const updated = ordered.map((c, i) => ({ ...c, position: i }))
+    const prev = columns
+    setColumns(updated)
+    await Promise.all(
+      updated.filter(c => c.position !== prev.find(o => o.id === c.id)?.position)
+        .map(c => supabase.from('db_columns').update({ position: c.position }).eq('id', c.id))
+    )
+  }
 
   const visible = columns.filter(c => !c.hidden).sort((a, b) => a.position - b.position)
   const typeMeta = (t: ColumnType) => COLUMN_TYPES.find(x => x.type === t)
@@ -163,7 +183,19 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
           <thead>
             <tr>
               {visible.map(col => (
-                <th key={col.id} className="relative text-left border-b min-w-[160px]" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <th key={col.id} className="relative text-left border-b min-w-[160px]"
+                  draggable={renaming !== col.id}
+                  onDragStart={e => { setDragCol(col.id); e.dataTransfer.effectAllowed = 'move' }}
+                  onDragEnd={() => { setDragCol(null); setDragOverCol(null) }}
+                  onDragOver={e => { if (dragCol && dragCol !== col.id) { e.preventDefault(); setDragOverCol(col.id) } }}
+                  onDragLeave={() => setDragOverCol(c => (c === col.id ? null : c))}
+                  onDrop={e => { e.preventDefault(); if (dragCol) moveColumn(dragCol, col.id); setDragCol(null); setDragOverCol(null) }}
+                  style={{
+                    borderColor: 'rgba(255,255,255,0.08)',
+                    opacity: dragCol === col.id ? 0.35 : 1,
+                    borderLeft: dragOverCol === col.id ? '2px solid var(--notion-accent)' : undefined,
+                    cursor: dragCol ? 'grabbing' : undefined,
+                  }}>
                   {renaming === col.id ? (
                     <div className="w-full flex items-center gap-1.5 px-2.5 py-2" style={{ background: 'var(--notion-bg-4)' }}>
                       <TypeIcon icon={col.config.icon || typeMeta(col.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-2)' }} />
