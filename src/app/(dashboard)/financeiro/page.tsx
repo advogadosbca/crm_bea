@@ -1,13 +1,16 @@
-import { getAuthProfile, getPageAssets } from '@/lib/auth'
-import { FinanceiroClient } from './FinanceiroClient'
-import { Lock } from 'lucide-react'
+import { getAuthProfile } from '@/lib/auth'
+import { getModuleTable } from '@/lib/dynamic-data'
+import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
+import { ModuleHeader } from '@/components/layout/ModuleHeader'
+import { FinanceiroResumo } from './FinanceiroResumo'
+import { Lock, Landmark } from 'lucide-react'
+import type { SelectOption } from '@/types/dynamic'
 
 export default async function FinanceiroPage() {
-  const { supabase, profile } = await getAuthProfile()
-  const workspaceId = profile?.workspace_id
+  const { profile } = await getAuthProfile()
   const isAdmin = ['super_admin', 'admin'].includes(profile?.role || '')
 
-  // Módulo restrito: só admins acessam
+  // Módulo restrito: só admins
   if (!isAdmin) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center text-center px-6">
@@ -23,26 +26,27 @@ export default async function FinanceiroPage() {
     )
   }
 
-  const assets = await getPageAssets('financeiro')
-
-  const [{ data: transacoes }, { data: contacts }] = await Promise.all([
-    supabase
-      .from('transacoes')
-      .select('*, contact:contacts(name, telefone)')
-      .eq('workspace_id', workspaceId || '')
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('contacts')
-      .select('id, name, telefone')
-      .eq('workspace_id', workspaceId || ''),
-  ])
+  const { tableId, columns, rows, sources, members, userId, views } = await getModuleTable('financeiro')
+  const byName = (n: string) => columns.find(c => c.name === n)
+  const tipoCol = byName('Tipo')
+  const entradaOptId = ((tipoCol?.config?.options as SelectOption[] | undefined) || []).find(o => o.label === 'Entrada')?.id
 
   return (
-    <FinanceiroClient
-      transacoes={transacoes || []}
-      contacts={contacts || []}
-      workspaceId={workspaceId || ''}
-      headerAssets={assets}
-    />
+    <div className="min-h-screen">
+      <ModuleHeader title="Financeiro" icon={Landmark} color="#34D399"
+        gradient="linear-gradient(135deg, #064e3b 0%, #065f46 60%, #064e3b 100%)" />
+      <div className="px-16 py-6">
+        {tableId ? (
+          <>
+            <FinanceiroResumo rows={rows} tipoColId={tipoCol?.id} dataColId={byName('Data')?.id}
+              valorColId={byName('Valor')?.id} entradaOptId={entradaOptId} />
+            <DynamicBoard key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows}
+              sources={sources} members={members} userId={userId} views={views} />
+          </>
+        ) : (
+          <p className="text-sm" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>
+        )}
+      </div>
+    </div>
   )
 }
