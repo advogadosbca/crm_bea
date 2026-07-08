@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
@@ -9,15 +9,16 @@ import {
 } from '@/types/dynamic'
 import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
+import { RecordPanel } from './RecordPanel'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
-  Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile,
+  Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight,
 } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
 type Calc = 'none' | 'count' | 'filled' | 'sum' | 'avg' | 'checked'
 
-export function DynamicTable({ tableId, initialColumns, initialRows, sources = [], members, userId }: {
+export function DynamicTable({ tableId, initialColumns, initialRows, sources: initialSources = [], members, userId }: {
   tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources?: DataSource[]; members: Member[]; userId: string
 }) {
   const supabase = createClient()
@@ -32,6 +33,18 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
   const [dragCol, setDragCol] = useState<string | null>(null)
   const [dragOverCol, setDragOverCol] = useState<string | null>(null)
+  // registro aberto no painel lateral (clique num chip de relação)
+  const [record, setRecord] = useState<{ source: DataSource; row: DBRow } | null>(null)
+  // fontes em estado local para que edições no painel reflitam na grade (chips/rollups)
+  const [sources, setSources] = useState<DataSource[]>(initialSources)
+  useEffect(() => { setSources(initialSources) }, [initialSources])
+  // a tabela ativa se enxerga como fonte com dados "ao vivo" (colunas/linhas do estado local);
+  // as demais fontes vêm do estado `sources` (editáveis pelo painel)
+  const liveSources = useMemo(
+    () => sources.map(s => (s.id === tableId ? { ...s, columns, rows } : s)),
+    [sources, columns, rows, tableId],
+  )
+  const selfSource = liveSources.find(s => s.id === tableId)
 
   // reordena colunas (arrastar-e-soltar) e persiste as posições
   async function moveColumn(fromId: string, toId: string) {
@@ -52,6 +65,8 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
   }
 
   const visible = columns.filter(c => !c.hidden).sort((a, b) => a.position - b.position)
+  // coluna "título" (onde aparece o botão Open), mesmo critério do primaryValue
+  const primaryColId = (visible.find(c => ['text', 'select', 'status', 'email', 'phone', 'url'].includes(c.type)) || visible[0])?.id
   const typeMeta = (t: ColumnType) => COLUMN_TYPES.find(x => x.type === t)
 
   const sortedRows = useMemo(() => {
@@ -80,6 +95,31 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
     const col = columns.find(c => c.id === colId)!
     const config = { ...col.config, options }
     setColumns(cs => cs.map(c => c.id === colId ? { ...c, config } : c))
+    await supabase.from('db_columns').update({ config }).eq('id', colId)
+  }
+  // ----- edições feitas dentro do painel de detalhe (linhas de OUTRAS fontes) -----
+  async function saveSourceField(sourceId: string, rowId: string, colId: string, value: unknown) {
+    const target = sourceId === tableId
+      ? rows.find(r => r.id === rowId)
+      : sources.find(s => s.id === sourceId)?.rows.find(r => r.id === rowId)
+    const data = { ...(target?.data || {}), [colId]: value }
+    const now = new Date().toISOString()
+    setSources(ss => ss.map(s => s.id !== sourceId ? s : {
+      ...s, rows: s.rows.map(r => r.id === rowId ? { ...r, data, updated_at: now, updated_by: userId } : r),
+    }))
+    // se a fonte for a própria tabela ativa, reflete também na grade
+    if (sourceId === tableId) setRows(rs => rs.map(r => r.id === rowId ? { ...r, data, updated_at: now, updated_by: userId } : r))
+    await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: now }).eq('id', rowId)
+  }
+  async function saveSourceOptions(sourceId: string, colId: string, options: SelectOption[]) {
+    const col = sourceId === tableId
+      ? columns.find(c => c.id === colId)
+      : sources.find(s => s.id === sourceId)?.columns.find(c => c.id === colId)
+    const config = { ...(col?.config || {}), options }
+    setSources(ss => ss.map(s => s.id !== sourceId ? s : {
+      ...s, columns: s.columns.map(c => c.id === colId ? { ...c, config } : c),
+    }))
+    if (sourceId === tableId) setColumns(cs => cs.map(c => c.id === colId ? { ...c, config } : c))
     await supabase.from('db_columns').update({ config }).eq('id', colId)
   }
   async function setColumnConfig(colId: string, patch: Record<string, unknown>) {
@@ -229,7 +269,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
                       onDelete={() => deleteColumn(col.id)}
                       onUpdateOptions={opts => updateColumnOptions(col.id, opts)}
                       onSetConfig={patch => setColumnConfig(col.id, patch)}
-                      sources={sources} tableColumns={columns}
+                      sources={liveSources} tableColumns={columns}
                       isAuto={AUTO_TYPES.includes(col.type)} />
                   )}
                 </th>
@@ -253,7 +293,15 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
                       rowMeta={{ created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by ?? undefined, updated_by: row.updated_by ?? undefined }}
                       onChange={v => updateCell(row.id, col.id, v)}
                       onUpdateOptions={opts => updateColumnOptions(col.id, opts)}
-                      sources={sources} row={row} tableColumns={columns} />
+                      sources={liveSources} row={row} tableColumns={columns}
+                      onOpenRecord={(source, r) => setRecord({ source, row: r })} />
+                    {col.id === primaryColId && selfSource && (
+                      <button onClick={() => setRecord({ source: selfSource, row })} title="Abrir registro"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto"
+                        style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
+                        <PanelRight className="w-3 h-3" /> Open
+                      </button>
+                    )}
                   </td>
                 ))}
                 <td className="w-10 align-middle text-center">
@@ -289,6 +337,13 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources = [
         {sort && <button onClick={() => setSort(null)} className="hover:text-[var(--notion-text-2)]">Limpar ordenação</button>}
         {hiddenCount > 0 && <button onClick={unhideAll} className="hover:text-[var(--notion-text-2)]">Mostrar {hiddenCount} coluna(s) oculta(s)</button>}
       </div>
+
+      {record && (
+        <RecordPanel record={record} sources={liveSources} members={members}
+          onClose={() => setRecord(null)}
+          onSaveField={saveSourceField}
+          onUpdateOptions={saveSourceOptions} />
+      )}
     </div>
   )
 }

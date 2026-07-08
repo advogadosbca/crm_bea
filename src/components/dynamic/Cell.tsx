@@ -15,9 +15,9 @@ function Dropdown({ pos, width, onClose, children }: {
   if (typeof document === 'undefined' || !pos) return null
   return createPortal(
     <>
-      <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={onClose} />
+      <div className="fixed inset-0" style={{ zIndex: 10050 }} onClick={onClose} />
       <div className="rounded-lg p-1.5 shadow-2xl"
-        style={{ position: 'fixed', left: pos.left, top: pos.top, width, zIndex: 9999, maxHeight: '320px', overflowY: 'auto', background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}
+        style={{ position: 'fixed', left: pos.left, top: pos.top, width, zIndex: 10051, maxHeight: '320px', overflowY: 'auto', background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}
         onClick={e => e.stopPropagation()}>
         {children}
       </div>
@@ -36,6 +36,10 @@ interface Props {
   sources?: DataSource[]
   row?: DBRow
   tableColumns?: DBColumn[]
+  /** modo somente leitura (ex.: painel de detalhe do registro) — não abre editores/seletores */
+  readOnly?: boolean
+  /** abrir o painel de detalhe de um registro relacionado (chip de relação clicável) */
+  onOpenRecord?: (source: DataSource, row: DBRow) => void
 }
 
 function Chip({ opt, onRemove }: { opt: SelectOption; onRemove?: () => void }) {
@@ -48,7 +52,7 @@ function Chip({ opt, onRemove }: { opt: SelectOption; onRemove?: () => void }) {
   )
 }
 
-export function Cell({ column, value, members, rowMeta, onChange, onUpdateOptions, sources = [], row, tableColumns = [] }: Props) {
+export function Cell({ column, value, members, rowMeta, onChange, onUpdateOptions, sources = [], row, tableColumns = [], readOnly = false, onOpenRecord }: Props) {
   const { type, config } = column
   const [editing, setEditing] = useState(false)
   const [open, setOpen] = useState(false)
@@ -80,7 +84,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     }
     const v = value as string
     return (
-      <div className={cellBase} style={txt} onClick={() => setEditing(true)}>
+      <div className={cellBase} style={txt} onClick={() => { if (!readOnly) setEditing(true) }}>
         {v ? (
           type === 'url' ? <a href={v} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 truncate hover:underline" style={{ color: '#60A5FA' }} onClick={e => e.stopPropagation()}>{v}<ExternalLink className="w-3 h-3" /></a> :
           type === 'email' ? <a href={`mailto:${v}`} className="truncate hover:underline" style={{ color: '#60A5FA' }} onClick={e => e.stopPropagation()}>{v}</a> :
@@ -98,7 +102,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
         onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false) }}
         className="w-full px-2 py-1.5 text-sm outline-none text-right font-mono" style={{ background: 'var(--notion-bg-4)', ...txt }} />
     }
-    return <div className={cellBase + ' justify-end font-mono'} style={txt} onClick={() => setEditing(true)}>{formatNumber(value, config.format)}</div>
+    return <div className={cellBase + ' justify-end font-mono'} style={txt} onClick={() => { if (!readOnly) setEditing(true) }}>{formatNumber(value, config.format)}</div>
   }
 
   // ---- checkbox ----
@@ -106,7 +110,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     const checked = !!value
     return (
       <div className="w-full min-h-[34px] flex items-center px-2">
-        <button onClick={() => onChange(!checked)} className="w-4 h-4 rounded flex items-center justify-center"
+        <button onClick={() => { if (!readOnly) onChange(!checked) }} className="w-4 h-4 rounded flex items-center justify-center"
           style={{ background: checked ? 'var(--notion-accent)' : 'transparent', border: checked ? 'none' : '1.5px solid var(--notion-border)' }}>
           {checked && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
         </button>
@@ -122,7 +126,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
         className="w-full px-2 py-1.5 text-sm outline-none" style={{ background: 'var(--notion-bg-4)', ...txt }} />
     }
     const v = value as string
-    return <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={() => setEditing(true)}>
+    return <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={() => { if (!readOnly) setEditing(true) }}>
       {v ? (config.withTime
         ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
         : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')) : ''}
@@ -134,7 +138,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     const m = members.find(x => x.id === value)
     return (
       <div className="relative w-full">
-        <div className={cellBase} style={txt} onClick={e => openAt(e, 192)}>
+        <div className={cellBase} style={txt} onClick={e => { if (!readOnly) openAt(e, 192) }}>
           {m ? <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m.full_name[0]}</span>{m.full_name}</span> : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
         </div>
         {open && (
@@ -158,7 +162,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     function toggle(id: string) { onChange(ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]) }
     return (
       <div className="relative w-full">
-        <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => openAt(e, 200)}>
+        <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e, 200) }}>
           {sel.length ? sel.map(m => (
             <span key={m.id} className="inline-flex items-center gap-1 text-xs">
               <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m.full_name[0]}</span>
@@ -211,7 +215,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
 
     return (
       <div className="relative w-full">
-        <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => openAt(e, 224)}>
+        <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e, 224) }}>
           {selOpts.length ? selOpts.map(o => <Chip key={o.id} opt={o} onRemove={() => removeOpt(o)} />) : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
         </div>
         {open && (
@@ -225,7 +229,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
 
   // ---- files (upload ou link) ----
   if (type === 'files') {
-    return <FilesCell value={value} cellBase={cellBase} onChange={onChange} />
+    return <FilesCell value={value} cellBase={cellBase} onChange={onChange} readOnly={readOnly} />
   }
 
   // ---- relação ----
@@ -240,11 +244,15 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     }
     return (
       <div className="relative w-full">
-        <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => openAt(e, 240)}>
+        <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e, 240) }}>
           {selRows.length ? selRows.map(r => (
-            <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px]" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>
-              <ArrowUpRight className="w-2.5 h-2.5" />{primaryValue(r, source.columns)}
-            </span>
+            <button key={r.id} type="button"
+              onClick={e => { if (onOpenRecord) { e.stopPropagation(); onOpenRecord(source, r) } }}
+              title={onOpenRecord ? `Abrir ${primaryValue(r, source.columns)}` : undefined}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] max-w-full transition hover:brightness-125"
+              style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)', cursor: onOpenRecord ? 'pointer' : 'inherit' }}>
+              <ArrowUpRight className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">{primaryValue(r, source.columns)}</span>
+            </button>
           )) : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
         </div>
         {open && (
@@ -302,7 +310,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
   return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }}>—</div>
 }
 
-function FilesCell({ value, cellBase, onChange }: { value: unknown; cellBase: string; onChange: (v: unknown) => void }) {
+function FilesCell({ value, cellBase, onChange, readOnly = false }: { value: unknown; cellBase: string; onChange: (v: unknown) => void; readOnly?: boolean }) {
   const supabase = createClient()
   const files: string[] = Array.isArray(value) ? value as string[] : []
   const [open, setOpen] = useState(false)
@@ -332,7 +340,7 @@ function FilesCell({ value, cellBase, onChange }: { value: unknown; cellBase: st
 
   return (
     <div className="relative w-full">
-      <div className={cellBase + ' gap-1 flex-wrap'} onClick={openAt}>
+      <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e) }}>
         {files.length ? files.map((f, i) => (
           <a key={i} href={f} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px]" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>
             {nameOf(f)}<ExternalLink className="w-2.5 h-2.5" />
