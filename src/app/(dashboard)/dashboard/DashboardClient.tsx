@@ -56,25 +56,48 @@ function monthly(list: FinRow[], mode: 'sum' | 'count') {
 const desc = (a: { value: number }, b: { value: number }) => b.value - a.value
 
 // ============ gráficos ============
+type Tip = { x: number; y: number; text: string } | null
+const fmtVal = (v: number, money: boolean) => money ? fmtBRL(v) : String(Math.round(v))
+
+function FloatTip({ tip }: { tip: Tip }) {
+  if (!tip) return null
+  return (
+    <div style={{
+      position: 'fixed', left: tip.x + 14, top: tip.y + 14, zIndex: 60, pointerEvents: 'none',
+      background: '#0b1524', border: '1px solid #2a4a72', color: '#e6edf5', fontSize: 11,
+      padding: '4px 8px', borderRadius: 6, whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(0,0,0,.45)',
+    }}>{tip.text}</div>
+  )
+}
+
+function arcPath(cx: number, cy: number, r: number, a0: number, a1: number) {
+  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0)
+  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1)
+  const large = a1 - a0 > Math.PI ? 1 : 0
+  return `M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`
+}
+
 function BarChart({ data, height = 180, money = true }: { data: { label: string; value: number }[]; height?: number; money?: boolean }) {
   const max = Math.max(1, ...data.map(d => d.value))
   const ticks = 4
+  const [tip, setTip] = useState<Tip>(null)
   return (
     <div className="flex gap-2">
       <div className="flex flex-col justify-between text-right shrink-0" style={{ height, width: 52, color: subC, fontSize: 9 }}>
         {Array.from({ length: ticks + 1 }).map((_, i) => <span key={i}>{fmtAxis(max * (ticks - i) / ticks, money)}</span>)}
       </div>
       <div className="flex-1 min-w-0 overflow-x-auto">
-        <div className="flex items-end gap-[2px] border-b" style={{ height, borderColor: '#1e355a', minWidth: data.length * 5 }}>
+        <div className="flex items-end gap-[2px] border-b" style={{ height, borderColor: '#1e355a', minWidth: data.length * 5 }} onMouseLeave={() => setTip(null)}>
           {data.map((d, i) => (
-            <div key={i} className="flex-1 rounded-t hover:brightness-110" style={{ minWidth: 3, height: `${Math.max(0.5, d.value / max * 100)}%`, background: GOLD }}
-              title={`${d.label}: ${money ? fmtBRL(d.value) : Math.round(d.value)}`} />
+            <div key={i} className="flex-1 rounded-t transition-[filter] hover:brightness-125" style={{ minWidth: 3, height: `${Math.max(0.5, d.value / max * 100)}%`, background: GOLD }}
+              onMouseMove={e => setTip({ x: e.clientX, y: e.clientY, text: `${d.label}: ${fmtVal(d.value, money)}` })} />
           ))}
         </div>
         <div className="flex gap-[2px]" style={{ minWidth: data.length * 5 }}>
           {data.map((d, i) => <span key={i} className="flex-1 text-center truncate" style={{ minWidth: 3, fontSize: 8, color: subC }}>{d.label}</span>)}
         </div>
       </div>
+      <FloatTip tip={tip} />
     </div>
   )
 }
@@ -82,23 +105,36 @@ function BarChart({ data, height = 180, money = true }: { data: { label: string;
 function Pie({ data, money = true }: { data: { label: string; value: number }[]; money?: boolean }) {
   const total = data.reduce((a, b) => a + b.value, 0) || 1
   const sorted = [...data].sort(desc)
-  let acc = 0
-  const stops = sorted.map((d, i) => {
-    const start = acc / total * 100; acc += d.value; const end = acc / total * 100
-    return `${PIE_COLORS[i % PIE_COLORS.length]} ${start}% ${end}%`
+  const [tip, setTip] = useState<Tip>(null)
+  const cx = 70, cy = 70, r = 69
+  let a0 = -Math.PI / 2
+  const slices = sorted.map((d, i) => {
+    const a1 = a0 + (d.value / total) * 2 * Math.PI
+    const s = { label: d.label, value: d.value, pct: d.value / total * 100, color: PIE_COLORS[i % PIE_COLORS.length], path: arcPath(cx, cy, r, a0, a1) }
+    a0 = a1
+    return s
   })
+  const onMove = (e: React.MouseEvent, s: { label: string; value: number; pct: number }) =>
+    setTip({ x: e.clientX, y: e.clientY, text: `${s.label || '—'}: ${fmtVal(s.value, money)} (${s.pct.toFixed(1)}%)` })
   return (
     <div className="flex items-center gap-4 flex-wrap">
-      <div className="rounded-full shrink-0" style={{ width: 140, height: 140, background: `conic-gradient(${stops.join(', ')})` }} />
+      <svg width={140} height={140} viewBox="0 0 140 140" className="shrink-0" onMouseLeave={() => setTip(null)}>
+        {slices.length === 1
+          ? <circle cx={cx} cy={cy} r={r} fill={slices[0].color} onMouseMove={e => onMove(e, slices[0])} />
+          : slices.map((s, i) => (
+            <path key={i} d={s.path} fill={s.color} stroke="#0e1a2c" strokeWidth={1} style={{ cursor: 'default' }} onMouseMove={e => onMove(e, s)} />
+          ))}
+      </svg>
       <div className="flex-1 min-w-[120px] space-y-1 max-h-[200px] overflow-y-auto">
         {sorted.map((d, i) => (
           <div key={i} className="flex items-center gap-1.5 text-xs">
             <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
             <span className="flex-1 truncate" style={{ color: titleC }} title={d.label}>{d.label || '—'}</span>
-            <span style={{ color: subC }}>{money ? '' : ''}{(d.value / total * 100).toFixed(1)}%</span>
+            <span style={{ color: subC }}>{(d.value / total * 100).toFixed(1)}%</span>
           </div>
         ))}
       </div>
+      <FloatTip tip={tip} />
     </div>
   )
 }
