@@ -10,6 +10,7 @@ export type FinRow = {
   data: string | null
   canal: string | null
   area: string | null
+  materia: string | null     // "Matéria" (área jurídica) — usada no Contratos
   categoria: string | null   // "Despesa" (categoria do custo) — só saídas
   custoTipo: string | null   // "Tipo" (Custo Fixo/Variável) — só saídas
 }
@@ -128,6 +129,9 @@ export function DashboardClient({ rows, initialMeta, workspaceId, metaTableId, m
     const fil = rows.filter(r => inFilter((r.data || '').slice(0, 10)))
     const rec = fil.filter(r => r.tipo === 'receita')
     const desp = fil.filter(r => r.tipo === 'despesa')
+    // Contratos agrupa por Matéria; se a coluna não existir, cai pra Área
+    const useMateria = rec.some(r => r.materia)
+    const contratoKey = (r: FinRow) => useMateria ? r.materia : r.area
 
     // lucro/mês (receita - despesa)
     const mm = new Map<string, { rec: number; desp: number }>()
@@ -154,10 +158,10 @@ export function DashboardClient({ rows, initialMeta, workspaceId, metaTableId, m
       custoMes: monthly(desp, 'sum'),
       custoFixos: groupSum(desp.filter(r => /fix/i.test(r.custoTipo || '')), r => r.categoria).sort(desc),
       custoVariaveis: groupSum(desp.filter(r => /vari/i.test(r.custoTipo || '')), r => r.categoria).sort(desc),
-      // contratos (cada receita = um contrato)
+      // contratos (cada receita = um contrato), agrupado por Matéria
       contratosMes: monthly(rec, 'count'),
-      contratosArea: groupCount(rec, r => r.area).sort(desc),
-      ticketArea: groupAvg(rec, r => r.area).sort(desc),
+      contratosArea: groupCount(rec, contratoKey).sort(desc),
+      ticketArea: groupAvg(rec, contratoKey).sort(desc),
     }
   }, [rows, ano, mes])
 
