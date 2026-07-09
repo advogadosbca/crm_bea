@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   Settings, Users, TrendingUp, FileText, Scale,
   Gavel, Building2, Target, Users2, Megaphone,
-  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database
+  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -15,6 +15,7 @@ const modules = [
   { href: '/geral', label: 'Geral', icon: Settings },
   { href: '/fontes', label: 'Fonte de dados', icon: Database },
   { href: '/financeiro', label: 'Financeiro', icon: Landmark },
+  { href: '/dashboard', label: 'Dashboard', icon: BarChart3 },
   { href: '/alvaras', label: 'Alvarás', icon: FileText },
   { href: '/pendencias', label: 'Pendências', icon: TrendingUp },
   { href: '/processos', label: 'Processos Judiciais', icon: Scale },
