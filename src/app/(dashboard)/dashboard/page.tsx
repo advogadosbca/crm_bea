@@ -44,6 +44,8 @@ export default async function DashboardPage() {
         dataId: findCol(['data'])?.id,
         canalCol: findCol(['canal']),
         areaCol: findCol(['area']),
+        despesaCol: findCol(['despesa', 'categoria', 'conta']),
+        tipoCol: findCol(['tipo', 'custo/tipo']),
         tipo: (RECEITA_KEYS.includes(t.module_key as string) ? 'receita' : 'despesa') as 'receita' | 'despesa',
       }]
     }))
@@ -56,6 +58,8 @@ export default async function DashboardPage() {
         data: m.dataId ? ((d[m.dataId] as string) || null) : null,
         canal: m.canalCol ? (displayValue(d[m.canalCol.id], m.canalCol) || null) : null,
         area: m.areaCol ? (displayValue(d[m.areaCol.id], m.areaCol) || null) : null,
+        categoria: m.despesaCol ? (displayValue(d[m.despesaCol.id], m.despesaCol) || null) : null,
+        custoTipo: m.tipoCol ? (displayValue(d[m.tipoCol.id], m.tipoCol) || null) : null,
       }
     })
   }
