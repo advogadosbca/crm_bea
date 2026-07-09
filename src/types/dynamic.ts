@@ -16,6 +16,8 @@ export interface ColumnConfig {
   withTime?: boolean
   /** relation: id da fonte de dados (db_table) referenciada */
   sourceTableId?: string
+  /** relation: colunas da tabela relacionada escolhidas para exibir no chip */
+  displayColIds?: string[]
   /** rollup: id da coluna de relação nesta tabela */
   relationColId?: string
   /** rollup: id da coluna alvo na tabela relacionada */
@@ -105,6 +107,34 @@ export const OPTION_COLORS = [
   { name: 'Azul', hex: '#3B82F6' }, { name: 'Roxo', hex: '#8B5CF6' }, { name: 'Rosa', hex: '#EC4899' },
   { name: 'Vermelho', hex: '#EF4444' },
 ]
+
+/** valor exibível de uma célula para uma coluna qualquer (usado nos chips de relação). */
+export function displayValue(value: unknown, col: DBColumn): string {
+  if (value === null || value === undefined || value === '') return ''
+  const opts = col.config.options || []
+  switch (col.type) {
+    case 'select': case 'status':
+      return opts.find(o => o.id === value || o.label === value)?.label || String(value)
+    case 'multi_select': {
+      const ids = Array.isArray(value) ? value : [value]
+      return ids.map(v => opts.find(o => o.id === v || o.label === v)?.label || String(v)).join(', ')
+    }
+    case 'number':
+      return formatNumber(value, col.config.format)
+    case 'checkbox':
+      return value ? '✓' : ''
+    case 'date': {
+      const v = String(value)
+      try {
+        return col.config.withTime
+          ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+          : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')
+      } catch { return v }
+    }
+    default:
+      return Array.isArray(value) ? value.join(', ') : String(value)
+  }
+}
 
 export function formatNumber(v: unknown, format?: ColumnConfig['format']): string {
   const n = Number(v)

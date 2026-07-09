@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase'
-import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, primaryValue, OPTION_COLORS } from '@/types/dynamic'
+import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, primaryValue, displayValue, OPTION_COLORS } from '@/types/dynamic'
 import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -242,6 +242,16 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
       const next = selected.includes(id) ? selected.filter(s => s !== id) : [...selected, id]
       onChange(next)
     }
+    // rótulo do chip: campos escolhidos (displayColIds) ou o título da linha
+    const displayIds = config.displayColIds || []
+    const relLabel = (r: DBRow) => {
+      if (!displayIds.length) return primaryValue(r, source.columns)
+      const parts = displayIds.map(id => {
+        const c = source.columns.find(x => x.id === id)
+        return c ? displayValue(r.data[id], c) : ''
+      }).filter(Boolean)
+      return parts.join(' · ') || primaryValue(r, source.columns)
+    }
     return (
       <div className="relative w-full">
         <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e, 240) }}>
@@ -251,7 +261,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
               title={onOpenRecord ? `Abrir ${primaryValue(r, source.columns)}` : undefined}
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] max-w-full transition hover:brightness-125"
               style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)', cursor: onOpenRecord ? 'pointer' : 'inherit' }}>
-              <ArrowUpRight className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">{primaryValue(r, source.columns)}</span>
+              <ArrowUpRight className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">{relLabel(r)}</span>
             </button>
           )) : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
         </div>

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
@@ -380,7 +381,7 @@ function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRenam
         ) : submenu === 'edit' && hasOptions ? (
           <OptionsEditor col={col} onUpdate={onUpdateOptions} onBack={() => setSubmenu('none')} />
         ) : submenu === 'edit' && isRelation ? (
-          <RelationConfig col={col} sources={sources} onSet={onSetConfig} onBack={() => setSubmenu('none')} />
+          <RelationConfig col={col} sources={sources} tableColumns={tableColumns} onSet={onSetConfig} onBack={() => setSubmenu('none')} />
         ) : submenu === 'edit' && isRollup ? (
           <RollupConfig col={col} sources={sources} tableColumns={tableColumns} onSet={onSetConfig} onBack={() => setSubmenu('none')} />
         ) : (
@@ -464,13 +465,49 @@ function OptionsEditor({ col, onUpdate, onBack }: { col: DBColumn; onUpdate: (o:
   )
 }
 
-function RelationConfig({ col, sources, onSet, onBack }: {
-  col: DBColumn; sources: DataSource[]; onSet: (p: Record<string, unknown>) => void; onBack: () => void
+function RelationConfig({ col, sources, tableColumns, onSet, onBack }: {
+  col: DBColumn; sources: DataSource[]; tableColumns: DBColumn[]; onSet: (p: Record<string, unknown>) => void; onBack: () => void
 }) {
+  // se outra coluna de relação já aponta para uma tabela, "puxa" ela automático
+  const siblingSource = tableColumns.find(c => c.type === 'relation' && c.id !== col.id && c.config.sourceTableId)?.config.sourceTableId
+  const [srcId, setSrcId] = useState<string | undefined>(col.config.sourceTableId || siblingSource)
   const [q, setQ] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [sidePos, setSidePos] = useState<{ left: number; top: number } | null>(null)
+  const SIDE_W = 232
+
+  const source = sources.find(s => s.id === srcId)
+  const selected: string[] = col.config.displayColIds || []
+  // colunas já ocupadas por OUTRAS colunas de relação para a mesma tabela
+  const usedByOthers = new Set(
+    tableColumns.filter(c => c.type === 'relation' && c.id !== col.id && c.config.sourceTableId === srcId)
+      .flatMap(c => c.config.displayColIds || [])
+  )
+  const available = source ? source.columns.filter(c => !usedByOthers.has(c.id)) : []
   const filtered = sources.filter(s => s.name.toLowerCase().includes(q.toLowerCase()))
+
+  // posiciona o painel de campos AO LADO do menu (direita; vira à esquerda se faltar espaço)
+  useEffect(() => {
+    if (!srcId || !rootRef.current) { setSidePos(null); return }
+    const r = rootRef.current.getBoundingClientRect()
+    const gap = 6, vw = typeof window !== 'undefined' ? window.innerWidth : 1200
+    let left = r.right + gap
+    if (left + SIDE_W > vw - 8) left = r.left - SIDE_W - gap
+    setSidePos({ left: Math.max(8, left), top: r.top })
+  }, [srcId])
+
+  function pickTable(id: string) {
+    setSrcId(id)
+    onSet({ sourceTableId: id, displayColIds: [] }) // troca de tabela zera os campos
+  }
+  function toggleField(fid: string) {
+    const next = selected.includes(fid) ? selected.filter(x => x !== fid) : [...selected, fid]
+    onSet({ sourceTableId: srcId, displayColIds: next })
+  }
+
   return (
-    <div onClick={e => e.stopPropagation()}>
+    <div ref={rootRef} onClick={e => e.stopPropagation()}>
+      {/* painel 1 — tabelas */}
       <div className="flex items-center justify-between px-1.5 pt-1 pb-1.5">
         <span className="text-xs font-medium" style={{ color: 'var(--notion-text)' }}>Relacionado a</span>
         <button onClick={onBack} style={{ color: 'var(--notion-text-3)' }}><X className="w-3.5 h-3.5" /></button>
@@ -484,8 +521,9 @@ function RelationConfig({ col, sources, onSet, onBack }: {
       <div className="max-h-56 overflow-y-auto space-y-0.5 px-0.5">
         {sources.length === 0 && <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Crie uma fonte de dados primeiro (menu Fonte de dados).</p>}
         {filtered.map(s => (
-          <button key={s.id} onClick={() => { onSet({ sourceTableId: s.id }); onBack() }}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+          <button key={s.id} onClick={() => pickTable(s.id)}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]"
+            style={{ color: 'var(--notion-text)', background: srcId === s.id ? 'var(--notion-bg-4)' : undefined }}>
             <span className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(34,211,238,0.15)' }}>
               <Table2 className="w-3 h-3" style={{ color: '#22D3EE' }} />
             </span>
@@ -493,11 +531,43 @@ function RelationConfig({ col, sources, onSet, onBack }: {
               <span className="block truncate" style={{ color: 'var(--notion-text)' }}>{s.name}</span>
               <span className="block truncate text-[10px]" style={{ color: 'var(--notion-text-3)' }}>{s.columns.length} colunas · {s.rows.length} registros</span>
             </span>
-            {col.config.sourceTableId === s.id && <Check className="w-3 h-3 flex-shrink-0" />}
+            {srcId === s.id && <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-accent)' }} />}
           </button>
         ))}
         {filtered.length === 0 && sources.length > 0 && <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhuma fonte encontrada.</p>}
       </div>
+
+      {/* painel 2 — campos, flutuando AO LADO */}
+      {srcId && source && sidePos && typeof document !== 'undefined' && createPortal(
+        <div className="fixed rounded-lg p-1 shadow-2xl"
+          style={{ left: sidePos.left, top: sidePos.top, width: SIDE_W, zIndex: 60, background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', maxHeight: '70vh', overflowY: 'auto' }}
+          onClick={e => e.stopPropagation()}>
+          <div className="flex items-center gap-1.5 px-1.5 pt-1 pb-1.5">
+            <span className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(34,211,238,0.15)' }}>
+              <Table2 className="w-3 h-3" style={{ color: '#22D3EE' }} />
+            </span>
+            <span className="text-xs font-medium truncate" style={{ color: 'var(--notion-text)' }}>{source.name}</span>
+          </div>
+          <p className="text-[10px] uppercase tracking-wider px-2 pb-1" style={{ color: 'var(--notion-text-3)' }}>Campos a exibir</p>
+          <div className="max-h-72 overflow-y-auto space-y-0.5 px-0.5 pb-1">
+            {available.length === 0 && <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhum campo disponível — os demais já foram usados por outras relações.</p>}
+            {available.map(c => {
+              const on = selected.includes(c.id)
+              return (
+                <button key={c.id} onClick={() => toggleField(c.id)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+                  <span className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0" style={{ background: on ? 'var(--notion-accent)' : 'transparent', border: on ? 'none' : '1.5px solid var(--notion-border)' }}>
+                    {on && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                  </span>
+                  <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+                  <span className="flex-1 text-left truncate">{c.name}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
