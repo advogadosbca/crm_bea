@@ -288,14 +288,14 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     const relCol = tableColumns.find(c => c.id === config.relationColId)
     const source = sources.find(s => s.id === relCol?.config.sourceTableId)
     const targetCol = source?.columns.find(c => c.id === config.targetColId)
-    if (!relCol || !source || !targetCol || !config.rollupFn) return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }} title="Configure o rollup no menu da coluna">—</div>
+    if (!relCol || !source || !targetCol) return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }} title="Configure o rollup no menu da coluna">—</div>
     const relIds: string[] = Array.isArray(row?.data[relCol.id]) ? row!.data[relCol.id] as string[] : []
     const relRows = relIds.map(id => source.rows.find(r => r.id === id)).filter(Boolean) as DBRow[]
     const vals = relRows.map(r => r.data[targetCol.id])
     let out = ''
-    const fn = config.rollupFn
+    const fn = config.rollupFn || 'concat' // sem cálculo => só puxa/concatena o valor do campo
     if (fn === 'count') out = String(relRows.length)
-    else if (fn === 'concat') out = vals.map(v => Array.isArray(v) ? v.join(', ') : String(v ?? '')).filter(Boolean).join(', ')
+    else if (fn === 'concat') out = relRows.map(r => displayValue(r.data[targetCol.id], targetCol)).filter(Boolean).join(', ')
     else {
       const nums = vals.map(Number).filter(n => !isNaN(n))
       if (fn === 'sum') out = formatNumber(nums.reduce((a, b) => a + b, 0), targetCol.config.format)

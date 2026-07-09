@@ -597,10 +597,10 @@ function RollupConfig({ col, sources, tableColumns, onSet, onBack }: {
         <option value="">— escolher —</option>
         {source?.columns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
-      <label className="block text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--notion-text-3)' }}>Cálculo</label>
-      <select value={col.config.rollupFn || ''} onChange={e => onSet({ rollupFn: e.target.value as RollupFn })} className={sel} style={st}>
-        <option value="">— escolher —</option>
-        {fns.map(f => <option key={f.v} value={f.v}>{f.l}</option>)}
+      <label className="block text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--notion-text-3)' }}>Cálculo (opcional)</label>
+      <select value={col.config.rollupFn || ''} onChange={e => onSet({ rollupFn: (e.target.value as RollupFn) || undefined })} className={sel} style={st}>
+        <option value="">Concatenar valores (padrão)</option>
+        {fns.filter(f => f.v !== 'concat').map(f => <option key={f.v} value={f.v}>{f.l}</option>)}
       </select>
     </div>
   )
