@@ -1,34 +1,23 @@
-import { getAuthProfile, getPageAssets } from '@/lib/auth'
-import { ProcessosClient } from './ProcessosClient'
+import { ModuleHeader } from '@/components/layout/ModuleHeader'
+import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
+import { getModuleTable } from '@/lib/dynamic-data'
+import { Scale } from 'lucide-react'
 
-export default async function ProcessosPage() {
-  const { supabase, profile } = await getAuthProfile()
-  const workspaceId = profile?.workspace_id
-  const assets = await getPageAssets('processos')
-
-  const [{ data: processos }, { data: members }, { data: contacts }] = await Promise.all([
-    supabase
-      .from('processos')
-      .select('*, membros:processo_membros(profile_id, profiles(full_name, avatar_url))')
-      .eq('workspace_id', workspaceId || '')
-      .order('prazo_limite', { ascending: true, nullsFirst: false }),
-    supabase
-      .from('profiles')
-      .select('id, full_name, avatar_url')
-      .eq('workspace_id', workspaceId || ''),
-    supabase
-      .from('contacts')
-      .select('id, name')
-      .eq('workspace_id', workspaceId || ''),
-  ])
+export default async function Page() {
+  const { tableId, columns, rows, sources, members, userId, views } = await getModuleTable('processos')
 
   return (
-    <ProcessosClient
-      processos={processos || []}
-      members={members || []}
-      contacts={contacts || []}
-      workspaceId={workspaceId || ''}
-      headerAssets={assets}
-    />
+    <div className="min-h-screen">
+      <ModuleHeader title="Processos Judiciais" icon={Scale} color="#818CF8"
+        gradient="linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #1e1b4b 100%)" />
+      <div className="px-16 py-6">
+        {tableId ? (
+          <DynamicBoard key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows}
+            sources={sources} members={members} userId={userId} views={views} />
+        ) : (
+          <p className="text-sm" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>
+        )}
+      </div>
+    </div>
   )
 }
