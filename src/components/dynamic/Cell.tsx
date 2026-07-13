@@ -73,8 +73,28 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
   const cellBase = 'w-full h-full min-h-[38px] px-2.5 py-2 text-sm cursor-pointer flex items-center'
   const txt = { color: 'var(--notion-text)' } as React.CSSProperties
 
-  // ---- texto / url / phone / email ----
-  if (['text', 'url', 'phone', 'email'].includes(type)) {
+  // ---- texto (multi-linha: quebra de linha + rolagem) ----
+  if (type === 'text') {
+    if (editing && !readOnly) {
+      return <textarea autoFocus defaultValue={(value as string) || ''}
+        onBlur={e => { onChange(e.target.value || null); setEditing(false) }}
+        onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }}
+        rows={4} className="w-full px-2 py-1.5 text-sm outline-none resize-y"
+        style={{ background: 'var(--notion-bg-4)', minHeight: 64, maxHeight: 280, ...txt }} />
+    }
+    const v = value as string
+    return (
+      <div className={'w-full min-h-[38px] px-2.5 py-2 text-sm flex items-start' + (readOnly ? '' : ' cursor-pointer')}
+        style={txt} onClick={() => { if (!readOnly) setEditing(true) }}>
+        {v
+          ? <span className="whitespace-pre-wrap break-words w-full" style={{ display: 'block', maxHeight: 160, overflowY: 'auto' }}>{v}</span>
+          : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
+      </div>
+    )
+  }
+
+  // ---- url / phone / email ----
+  if (['url', 'phone', 'email'].includes(type)) {
     if (editing) {
       return <input ref={inputRef} defaultValue={(value as string) || ''}
         onBlur={e => { onChange(e.target.value || null); setEditing(false) }}

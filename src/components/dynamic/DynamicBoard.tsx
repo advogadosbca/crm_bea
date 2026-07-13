@@ -132,7 +132,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
     }
     if (col.type === 'number') return <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>{formatNumber(v, col.config.format)}</span>
     if (col.type === 'date') return <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>{new Date(String(v) + (String(v).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')}</span>
-    return <span className="text-xs truncate" style={{ color: 'var(--notion-text-2)' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</span>
+    return <span className="text-xs block truncate" style={{ color: 'var(--notion-text-2)' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</span>
   }
 
   const current = rows.find(r => r.id === openRow) || null
