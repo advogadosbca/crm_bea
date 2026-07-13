@@ -183,7 +183,8 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
                 <div key={c.id} draggable
                   onDragStart={() => setDragId(c.id)}
                   onDragEnd={() => { setDragId(null); setOverCol(null) }}
-                  className="group/card relative rounded-lg p-3 border cursor-grab active:cursor-grabbing transition-all hover:border-[var(--notion-accent)]"
+                  onClick={() => onEditCard?.(c)}
+                  className="group/card relative rounded-lg p-3 border cursor-pointer active:cursor-grabbing transition-all hover:border-[var(--notion-accent)]"
                   style={{ background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)', opacity: dragId === c.id ? 0.4 : 1 }}>
                   <div className="flex items-start justify-between gap-1.5 mb-1.5">
                     <p className="text-sm font-medium leading-tight" style={{ color: 'var(--notion-text)' }}>{c.name}</p>

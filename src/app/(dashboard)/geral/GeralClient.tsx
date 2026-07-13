@@ -291,10 +291,10 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
 
       {/* Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}
+        <div className="fixed inset-0 z-50" style={{ background: 'rgba(0,0,0,0.5)' }}
           onClick={e => e.target === e.currentTarget && closeForm()}>
-          <div className="w-full max-w-lg rounded-2xl overflow-y-auto max-h-[90vh] animate-fade-in"
-            style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+          <div className="fixed right-0 top-0 h-full w-full max-w-md overflow-y-auto animate-fade-in shadow-2xl"
+            style={{ background: 'var(--notion-bg-2)', borderLeft: '1px solid var(--notion-border)' }}>
             <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--notion-border)' }}>
               <h2 className="font-semibold" style={{ color: 'var(--notion-text)' }}>{editId ? 'Editar contato' : 'Novo contato'}</h2>
               <button onClick={closeForm} style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
