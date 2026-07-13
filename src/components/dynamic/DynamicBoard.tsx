@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { DBColumn, DBRow, DataSource, SelectOption, formatNumber } from '@/types/dynamic'
 import { DynamicTable } from './DynamicTable'
 import { Cell } from './Cell'
+import { RecordPanel as RelationRecordPanel } from './RecordPanel'
 import { TypeIcon } from './TypePicker'
 import { COLUMN_TYPES } from '@/types/dynamic'
 import {
@@ -311,6 +312,7 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
   const router = useRouter()
   const [comments, setComments] = useState<RowComment[]>([])
   const [text, setText] = useState('')
+  const [nested, setNested] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const titleCol = [...columns].sort((a, b) => a.position - b.position).find(c => c.type === 'text') || columns[0]
   const fieldCols = columns.filter(c => c !== titleCol).sort((a, b) => a.position - b.position)
   const member = (id: string) => members.find(m => m.id === id)
@@ -331,6 +333,17 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
   async function del() {
     if (!confirm('Excluir este registro?')) return
     await supabase.from('db_rows').delete().eq('id', row.id); onDeleted(); router.refresh()
+  }
+  // edição no painel de relação aninhado (ex.: clicar no Contato abre a ficha do contato)
+  async function saveNestedField(sourceId: string, rowId: string, colId: string, value: unknown) {
+    const r = sources.find(s => s.id === sourceId)?.rows.find(x => x.id === rowId)
+    await supabase.from('db_rows').update({ data: { ...(r?.data || {}), [colId]: value } }).eq('id', rowId)
+    router.refresh()
+  }
+  async function saveNestedOptions(sourceId: string, colId: string, options: SelectOption[]) {
+    const col = sources.find(s => s.id === sourceId)?.columns.find(c => c.id === colId)
+    await supabase.from('db_columns').update({ config: { ...(col?.config || {}), options } }).eq('id', colId)
+    router.refresh()
   }
 
   return (
@@ -364,7 +377,8 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
                   <div className="flex-1 min-w-0 rounded-md" style={{ background: auto ? 'transparent' : 'var(--notion-bg-2)' }}>
                     <Cell column={col} value={row.data[col.id]} members={members} sources={sources} row={row} tableColumns={columns}
                       rowMeta={{ created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by ?? undefined, updated_by: row.updated_by ?? undefined }}
-                      onChange={v => updateCell(row.id, col.id, v)} onUpdateOptions={o => updateColumnOptions(col.id, o)} />
+                      onChange={v => updateCell(row.id, col.id, v)} onUpdateOptions={o => updateColumnOptions(col.id, o)}
+                      onOpenRecord={(s, r) => setNested({ source: s, row: r })} />
                   </div>
                 </div>
               )
@@ -391,6 +405,10 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
               )})}
             </div>
           </div>
+          {nested && (
+            <RelationRecordPanel record={nested} sources={sources} members={members}
+              onClose={() => setNested(null)} onSaveField={saveNestedField} onUpdateOptions={saveNestedOptions} />
+          )}
         </div>
       </div>
     </div>

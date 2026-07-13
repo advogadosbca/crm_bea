@@ -14,6 +14,7 @@ import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader
 import { KanbanBoard, KanbanColumn } from '@/components/ui/KanbanBoard'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
+import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
 import { DBColumn, DBRow, DataSource } from '@/types/dynamic'
 
 type DynTable = { tableId: string; columns: DBColumn[]; rows: DBRow[] } | null
@@ -31,6 +32,7 @@ interface Props {
   board: { lists: BList[]; cards: BCard[]; labels: BLabel[] }
   geralTables: { alerta: DynTable; prazos: DynTable; sources: DataSource[] }
   shortcuts: { contatosId: string; leadsId: string }
+  leadsBoard?: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null
 }
 
 type Mode = 'tabela' | 'funil' | 'negociacao' | 'acoes'
@@ -45,7 +47,7 @@ function Tag({ label, color }: { label: string; color: string }) {
   )
 }
 
-export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts }: Props) {
+export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard }: Props) {
   const canEditBoard = headerAssets.canEdit
 
   async function novoNaFonte(tableId: string) {
@@ -273,9 +275,15 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
 
         {/* KANBANS */}
         {mode === 'funil' && (
-          <KanbanBoard contacts={searched} field="funil_status" boardKey="funil"
-            initialColumns={kanbanColumns.funil} canEdit={canEditBoard} showTags={['status_geral']}
-            onNewPage={label => openNewInColumn(label, 'funil_status')} onEditCard={openEditCard} />
+          leadsBoard ? (
+            <DynamicBoard key={leadsBoard.tableId} tableId={leadsBoard.tableId}
+              initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
+              sources={geralTables.sources} members={members} userId={userId} views={leadsBoard.views} />
+          ) : (
+            <KanbanBoard contacts={searched} field="funil_status" boardKey="funil"
+              initialColumns={kanbanColumns.funil} canEdit={canEditBoard} showTags={['status_geral']}
+              onNewPage={label => openNewInColumn(label, 'funil_status')} onEditCard={openEditCard} />
+          )
         )}
         {mode === 'negociacao' && (
           <KanbanBoard contacts={searched} field="status_geral" boardKey="negociacao"

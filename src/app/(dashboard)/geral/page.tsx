@@ -35,7 +35,7 @@ export default async function GeralPage() {
   if (dynIds.length) {
     const [{ data: c }, { data: r }] = await Promise.all([
       supabase.from('db_columns').select('*').in('table_id', dynIds).order('position'),
-      supabase.from('db_rows').select('*').in('table_id', dynIds).order('position'),
+      supabase.from('db_rows').select('*').in('table_id', dynIds).order('position').limit(100000),
     ])
     dynCols = (c || []) as DBColumn[]; dynRows = (r || []) as DBRow[]
   }
@@ -48,6 +48,14 @@ export default async function GeralPage() {
   const shortcuts = {
     contatosId: (dynTables || []).find(t => t.module_key === 'fonte-contatos')?.id || '',
     leadsId: (dynTables || []).find(t => t.module_key === 'fonte-leads')?.id || '',
+  }
+
+  // funil dinâmico: tabela Leads (quadro por Status pré-atendimento) com relação Contato
+  const leadsSource = dynSources.find(s => s.id === shortcuts.leadsId)
+  let leadsBoard: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null = null
+  if (shortcuts.leadsId && leadsSource) {
+    const { data: leadsViews } = await supabase.from('db_views').select('id, name, type, position').eq('table_id', shortcuts.leadsId).order('position')
+    leadsBoard = { tableId: shortcuts.leadsId, columns: leadsSource.columns, rows: leadsSource.rows, views: leadsViews || [] }
   }
 
   const cols = kanbanCols || []
@@ -75,6 +83,7 @@ export default async function GeralPage() {
       board={{ lists: boardLists || [], cards: boardCards, labels: boardLabels || [] }}
       geralTables={geralTables}
       shortcuts={shortcuts}
+      leadsBoard={leadsBoard}
     />
   )
 }
