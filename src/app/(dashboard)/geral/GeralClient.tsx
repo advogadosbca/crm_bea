@@ -49,6 +49,7 @@ function Tag({ label, color }: { label: string; color: string }) {
 
 export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard }: Props) {
   const canEditBoard = headerAssets.canEdit
+  const leadColId = (name: string) => leadsBoard?.columns.find(c => c.name === name)?.id
 
   async function novoNaFonte(tableId: string) {
     if (!tableId) return
@@ -286,14 +287,28 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
           )
         )}
         {mode === 'negociacao' && (
-          <KanbanBoard contacts={searched} field="status_geral" boardKey="negociacao"
-            initialColumns={kanbanColumns.negociacao} canEdit={canEditBoard} showTags={['renda', 'analise']}
-            onNewPage={label => openNewInColumn(label, 'status_geral')} onEditCard={openEditCard} />
+          leadsBoard ? (
+            <DynamicBoard key={leadsBoard.tableId + '-neg'} tableId={leadsBoard.tableId}
+              initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
+              sources={geralTables.sources} members={members} userId={userId}
+              groupColId={leadColId('Status Geral')} views={[{ id: 'neg', name: 'Leads em Negociação', type: 'board', position: 0 }]} />
+          ) : (
+            <KanbanBoard contacts={searched} field="status_geral" boardKey="negociacao"
+              initialColumns={kanbanColumns.negociacao} canEdit={canEditBoard} showTags={['renda', 'analise']}
+              onNewPage={label => openNewInColumn(label, 'status_geral')} onEditCard={openEditCard} />
+          )
         )}
         {mode === 'acoes' && (
-          <KanbanBoard contacts={searched} field="status_processual" boardKey="acoes"
-            initialColumns={kanbanColumns.acoes} canEdit={canEditBoard} showTags={['status_geral', 'observacao']}
-            onNewPage={label => openNewInColumn(label, 'status_processual')} onEditCard={openEditCard} />
+          leadsBoard ? (
+            <DynamicBoard key={leadsBoard.tableId + '-acoes'} tableId={leadsBoard.tableId}
+              initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
+              sources={geralTables.sources} members={members} userId={userId}
+              groupColId={leadColId('Status Processual')} views={[{ id: 'acoes', name: 'Ações', type: 'board', position: 0 }]} />
+          ) : (
+            <KanbanBoard contacts={searched} field="status_processual" boardKey="acoes"
+              initialColumns={kanbanColumns.acoes} canEdit={canEditBoard} showTags={['status_geral', 'observacao']}
+              onNewPage={label => openNewInColumn(label, 'status_processual')} onEditCard={openEditCard} />
+          )
         )}
       </div>
 

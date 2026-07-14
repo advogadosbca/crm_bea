@@ -42,8 +42,8 @@ const VIEW_TYPES: { type: string; label: string; icon: React.ComponentType<{ cla
 ]
 const viewMeta = (t: string) => VIEW_TYPES.find(v => v.type === t) || VIEW_TYPES[0]
 
-export function DynamicBoard({ tableId, initialColumns, initialRows, sources, members, userId, views: initialViews = [] }: {
-  tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources: DataSource[]; members: Member[]; userId: string; views?: DBView[]
+export function DynamicBoard({ tableId, initialColumns, initialRows, sources, members, userId, views: initialViews = [], groupColId }: {
+  tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources: DataSource[]; members: Member[]; userId: string; views?: DBView[]; groupColId?: string
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -96,7 +96,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   }
 
   const ordered = [...columns].sort((a, b) => a.position - b.position)
-  const groupCol = ordered.find(c => c.type === 'status') || ordered.find(c => c.type === 'select')
+  const groupCol = (groupColId ? ordered.find(c => c.id === groupColId) : null) || ordered.find(c => c.type === 'status') || ordered.find(c => c.type === 'select')
   const titleCol = ordered.find(c => c.type === 'text') || ordered[0]
   const peopleCol = ordered.find(c => c.type === 'people')
   const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !['files'].includes(c.type) && !c.hidden)
