@@ -12,6 +12,7 @@ import { COLUMN_TYPES } from '@/types/dynamic'
 import {
   LayoutGrid, Table2, Plus, X, MessageSquare, List as ListIcon, Image as ImageIcon, Calendar as CalIcon,
   BarChart3, LayoutDashboard, GanttChart, Rss, Map as MapIcon, MoreHorizontal, Pencil, Copy, Trash2, Repeat, Check,
+  Search, SlidersHorizontal, Eye, EyeOff,
 } from 'lucide-react'
 
 function MenuItem({ icon: Icon, label, onClick, danger, arrow }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean }) {
@@ -57,6 +58,8 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const [addingView, setAddingView] = useState(false)
   const [renamingView, setRenamingView] = useState<string | null>(null)
   const [exibirSub, setExibirSub] = useState(false)
+  const [q, setQ] = useState('')
+  const [cfgOpen, setCfgOpen] = useState(false)
 
   useEffect(() => { setColumns(initialColumns) }, [initialColumns])
   useEffect(() => { setRows(initialRows) }, [initialRows])
@@ -98,6 +101,29 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const peopleCol = ordered.find(c => c.type === 'people')
   const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !['files'].includes(c.type) && !c.hidden)
   const opt = (col: DBColumn, v: unknown) => (col.config.options || []).find(o => o.id === v || o.label === v)
+
+  // busca (lupa): filtra as linhas por texto em qualquer coluna
+  const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+  const shown = q.trim() ? rows.filter(r => {
+    const needle = nrm(q)
+    return ordered.some(c => {
+      const v = r.data[c.id]
+      if (v == null || v === '') return false
+      if (['select', 'status', 'multi_select'].includes(c.type)) {
+        const opts = c.config.options || []
+        return (Array.isArray(v) ? v : [v]).some(id => { const o = opts.find(x => x.id === id || x.label === id); return o && nrm(o.label).includes(needle) })
+      }
+      return nrm(Array.isArray(v) ? v.join(' ') : String(v)).includes(needle)
+    })
+  }) : rows
+
+  // visibilidade das propriedades no card (usa o campo hidden da coluna)
+  async function toggleColHidden(colId: string) {
+    const col = columns.find(c => c.id === colId); if (!col) return
+    const hidden = !col.hidden
+    setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden } : c))
+    await supabase.from('db_columns').update({ hidden }).eq('id', colId)
+  }
   const member = (id: string) => members.find(m => m.id === id)
 
   async function updateCell(rowId: string, colId: string, value: unknown) {
@@ -212,39 +238,66 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
             </>
           )}
         </div>
+        {/* busca (lupa) + visibilidade das propriedades */}
+        <div className="flex-1" />
+        <div className="relative flex items-center gap-1">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+            <Search className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar..." className="bg-transparent text-xs outline-none w-28" style={{ color: 'var(--notion-text)' }} />
+            {q && <button onClick={() => setQ('')} style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>}
+          </div>
+          <button onClick={() => setCfgOpen(o => !o)} title="Propriedades do card" className="p-1.5 rounded-md hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          {cfgOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setCfgOpen(false)} />
+              <div className="absolute right-0 top-9 z-50 w-64 rounded-lg p-2 shadow-2xl max-h-[60vh] overflow-y-auto" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                <p className="text-[10px] uppercase tracking-wider px-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Propriedades no card</p>
+                {ordered.filter(c => c !== titleCol).map(c => (
+                  <button key={c.id} onClick={() => toggleColHidden(c.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+                    <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+                    <span className="flex-1 text-left truncate">{c.name}</span>
+                    {c.hidden ? <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} /> : <Eye className="w-3.5 h-3.5" style={{ color: 'var(--notion-accent)' }} />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {vt === 'table' ? (
         <DynamicTable key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId} />
       ) : vt === 'gallery' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {rows.map(r => (
+          {shown.map(r => (
             <div key={r.id} onClick={() => setOpenRow(r.id)} className="rounded-xl p-4 border cursor-pointer transition-all hover:border-[var(--notion-accent)]" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
               <p className="text-sm font-medium mb-2" style={{ color: 'var(--notion-text)' }}>{titleCol ? (r.data[titleCol.id] as string) || '(sem título)' : ''}</p>
               <div className="space-y-1">{cardCols.slice(0, 4).map(c => { const f = cardField(c, r); return f ? <div key={c.id}>{f}</div> : null })}</div>
             </div>
           ))}
-          {rows.length === 0 && <p className="text-sm col-span-full" style={{ color: 'var(--notion-text-3)' }}>Sem registros.</p>}
+          {shown.length === 0 && <p className="text-sm col-span-full" style={{ color: 'var(--notion-text-3)' }}>Sem registros.</p>}
         </div>
       ) : vt === 'list' ? (
         <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--notion-border)' }}>
-          {rows.map(r => (
+          {shown.map(r => (
             <div key={r.id} onClick={() => setOpenRow(r.id)} className="flex items-center gap-3 px-4 py-2.5 border-b cursor-pointer transition-colors hover:bg-[var(--notion-bg-2)]" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
               <span className="text-sm font-medium flex-1 truncate" style={{ color: 'var(--notion-text)' }}>{titleCol ? (r.data[titleCol.id] as string) || '(sem título)' : ''}</span>
               {cardCols.slice(0, 3).map(c => <span key={c.id}>{cardField(c, r)}</span>)}
             </div>
           ))}
-          {rows.length === 0 && <p className="text-sm px-4 py-3" style={{ color: 'var(--notion-text-3)' }}>Sem registros.</p>}
+          {shown.length === 0 && <p className="text-sm px-4 py-3" style={{ color: 'var(--notion-text-3)' }}>Sem registros.</p>}
         </div>
       ) : vt === 'calendar' ? (
-        <CalendarView rows={rows} columns={ordered} titleCol={titleCol} onOpen={setOpenRow} />
+        <CalendarView rows={shown} columns={ordered} titleCol={titleCol} onOpen={setOpenRow} />
       ) : vt === 'board' ? (
         !groupCol ? (
           <p className="text-sm" style={{ color: 'var(--notion-text-3)' }}>Adicione uma coluna do tipo Status para visualizar como quadro.</p>
         ) : (
         <div className="flex gap-3 overflow-x-auto pb-3 items-start">
           {(groupCol.config.options || []).map(o => {
-            const cardsHere = rows.filter(r => { const v = r.data[groupCol.id]; return v === o.id || v === o.label })
+            const cardsHere = shown.filter(r => { const v = r.data[groupCol.id]; return v === o.id || v === o.label })
             return (
               <div key={o.id}
                 onDragOver={e => { e.preventDefault(); setOverCol(o.id) }}
