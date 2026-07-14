@@ -3,7 +3,11 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { DBColumn, DBRow, DataSource, SelectOption, formatNumber } from '@/types/dynamic'
+import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, OPTION_COLORS } from '@/types/dynamic'
+import {
+  ViewConfig, FilterCond, ColorRule, FILTER_OPS,
+  matchesFilters, applySort, rowColor, loadViewConfig, saveViewConfig,
+} from '@/lib/view-config'
 import { DynamicTable } from './DynamicTable'
 import { Cell } from './Cell'
 import { RecordPanel as RelationRecordPanel } from './RecordPanel'
@@ -13,6 +17,7 @@ import {
   LayoutGrid, Table2, Plus, X, MessageSquare, List as ListIcon, Image as ImageIcon, Calendar as CalIcon,
   BarChart3, LayoutDashboard, GanttChart, Rss, Map as MapIcon, MoreHorizontal, Pencil, Copy, Trash2, Repeat, Check,
   Search, SlidersHorizontal, Eye, EyeOff,
+  ChevronRight, Filter, ArrowUpDown, Layers, Palette, Link2, Database,
 } from 'lucide-react'
 
 function MenuItem({ icon: Icon, label, onClick, danger, arrow }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean }) {
@@ -20,6 +25,25 @@ function MenuItem({ icon: Icon, label, onClick, danger, arrow }: { icon: React.C
     <button onClick={onClick} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: danger ? '#F87171' : 'var(--notion-text)' }}>
       <Icon className="w-3.5 h-3.5" /> <span className="flex-1 text-left">{label}</span>
       {arrow && <span style={{ color: 'var(--notion-text-3)' }}>›</span>}
+    </button>
+  )
+}
+
+// Linha do menu de configurações da visualização (estilo Notion): rótulo à esquerda,
+// valor atual à direita, seta para submenu — ou etiqueta "em breve" quando indisponível.
+function SettingsRow({ icon: Icon, label, value, onClick, arrow, soon }: {
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+  label: string; value?: string; onClick?: () => void; arrow?: boolean; soon?: boolean
+}) {
+  return (
+    <button onClick={soon ? undefined : onClick} disabled={soon}
+      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors disabled:cursor-default disabled:hover:bg-transparent disabled:opacity-60"
+      style={{ color: 'var(--notion-text)' }}>
+      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+      <span className="flex-1 text-left truncate">{label}</span>
+      {value && <span className="text-[11px] truncate max-w-[96px]" style={{ color: 'var(--notion-text-3)' }}>{value}</span>}
+      {soon && <span className="text-[9px] px-1 py-0.5 rounded flex-shrink-0" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-3)' }}>em breve</span>}
+      {arrow && !soon && <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />}
     </button>
   )
 }
@@ -60,6 +84,18 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const [exibirSub, setExibirSub] = useState(false)
   const [q, setQ] = useState('')
   const [cfgOpen, setCfgOpen] = useState(false)
+  const [cfgTab, setCfgTab] = useState<'menu' | 'layout' | 'visibility' | 'filter' | 'sort' | 'group' | 'color'>('menu')
+  const [copied, setCopied] = useState(false)
+  // configuração da visualização (Filtrar/Ordenar/Agrupar/Cor) — carregada/persistida por view em localStorage.
+  // recarrega ao trocar de view ajustando o estado durante o render (padrão sancionado do React, sem useEffect).
+  const [vcfg, setVcfg] = useState<ViewConfig>(() => loadViewConfig(activeId || ''))
+  const [vcfgFor, setVcfgFor] = useState(activeId)
+  if (activeId !== vcfgFor) { setVcfgFor(activeId); setVcfg(loadViewConfig(activeId || '')) }
+  const patchVcfg = (patch: Partial<ViewConfig>) => setVcfg(prev => {
+    const next = { ...prev, ...patch }
+    saveViewConfig(activeId || '', next)
+    return next
+  })
 
   useEffect(() => { setColumns(initialColumns) }, [initialColumns])
   useEffect(() => { setRows(initialRows) }, [initialRows])
@@ -96,15 +132,17 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   }
 
   const ordered = [...columns].sort((a, b) => a.position - b.position)
-  const groupCol = (groupColId ? ordered.find(c => c.id === groupColId) : null) || ordered.find(c => c.type === 'status') || ordered.find(c => c.type === 'select')
+  const effGroupColId = vcfg.groupColId || groupColId
+  const groupCol = (effGroupColId ? ordered.find(c => c.id === effGroupColId) : null) || ordered.find(c => c.type === 'status') || ordered.find(c => c.type === 'select')
   const titleCol = ordered.find(c => c.type === 'text') || ordered[0]
   const peopleCol = ordered.find(c => c.type === 'people')
   const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !['files'].includes(c.type) && !c.hidden)
   const opt = (col: DBColumn, v: unknown) => (col.config.options || []).find(o => o.id === v || o.label === v)
 
-  // busca (lupa): filtra as linhas por texto em qualquer coluna
+  // pipeline das views não-tabela: filtros (Filtrar) → busca (lupa) → ordenação (Ordenar)
   const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
-  const shown = q.trim() ? rows.filter(r => {
+  const filteredRows = vcfg.filters.length ? rows.filter(r => matchesFilters(r, columns, vcfg.filters)) : rows
+  const searchedRows = q.trim() ? filteredRows.filter(r => {
     const needle = nrm(q)
     return ordered.some(c => {
       const v = r.data[c.id]
@@ -115,7 +153,10 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
       }
       return nrm(Array.isArray(v) ? v.join(' ') : String(v)).includes(needle)
     })
-  }) : rows
+  }) : filteredRows
+  const shown = applySort(searchedRows, columns, vcfg.sort)
+  // cor condicional aplicada aos cards (board/galeria/lista)
+  const cardColor = (r: DBRow) => vcfg.colorRules.length ? rowColor(r, columns, vcfg.colorRules) : null
 
   // visibilidade das propriedades no card (usa o campo hidden da coluna)
   async function toggleColHidden(colId: string) {
@@ -246,33 +287,178 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar..." className="bg-transparent text-xs outline-none w-28" style={{ color: 'var(--notion-text)' }} />
             {q && <button onClick={() => setQ('')} style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>}
           </div>
-          <button onClick={() => setCfgOpen(o => !o)} title="Propriedades do card" className="p-1.5 rounded-md hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
+          <button onClick={() => { setCfgOpen(o => !o); setCfgTab('menu') }} title="Configurações da visualização" className="p-1.5 rounded-md hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
             <SlidersHorizontal className="w-4 h-4" />
           </button>
-          {cfgOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setCfgOpen(false)} />
-              <div className="absolute right-0 top-9 z-50 w-64 rounded-lg p-2 shadow-2xl max-h-[60vh] overflow-y-auto" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
-                <p className="text-[10px] uppercase tracking-wider px-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Propriedades no card</p>
-                {ordered.filter(c => c !== titleCol).map(c => (
-                  <button key={c.id} onClick={() => toggleColHidden(c.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
-                    <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
-                    <span className="flex-1 text-left truncate">{c.name}</span>
-                    {c.hidden ? <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} /> : <Eye className="w-3.5 h-3.5" style={{ color: 'var(--notion-accent)' }} />}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          {cfgOpen && (() => {
+            const sourceName = sources.find(s => s.id === tableId)?.name || activeView?.name || 'Fonte'
+            const visibleCount = ordered.filter(c => !c.hidden).length
+            const propList = ordered.filter(c => c !== titleCol)
+            const copyLink = async () => {
+              try { await navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* noop */ }
+            }
+            const cols = ordered
+            const colName = (id: string) => cols.find(c => c.id === id)?.name || '—'
+            const selCls = 'w-full px-2 py-1.5 rounded text-xs outline-none'
+            const selSt: React.CSSProperties = { background: 'var(--notion-bg-4)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }
+            const addFilter = () => patchVcfg({ filters: [...vcfg.filters, { id: crypto.randomUUID(), colId: cols[0]?.id || '', op: 'contains', value: '' }] })
+            const setFilter = (id: string, patch: Partial<FilterCond>) => patchVcfg({ filters: vcfg.filters.map(f => f.id === id ? { ...f, ...patch } : f) })
+            const delFilter = (id: string) => patchVcfg({ filters: vcfg.filters.filter(f => f.id !== id) })
+            const addColor = () => patchVcfg({ colorRules: [...vcfg.colorRules, { id: crypto.randomUUID(), colId: cols[0]?.id || '', op: 'contains', value: '', color: OPTION_COLORS[5].hex }] })
+            const setColorRule = (id: string, patch: Partial<ColorRule>) => patchVcfg({ colorRules: vcfg.colorRules.map(r => r.id === id ? { ...r, ...patch } : r) })
+            const delColor = (id: string) => patchVcfg({ colorRules: vcfg.colorRules.filter(r => r.id !== id) })
+            const backBtn = (label: string) => (
+              <button onClick={() => setCfgTab('menu')} className="w-full text-left px-2 py-1 text-xs mb-1" style={{ color: 'var(--notion-text-3)' }}>← {label}</button>
+            )
+            return (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => { setCfgOpen(false); setCfgTab('menu') }} />
+                <div className="absolute right-0 top-9 z-50 w-72 rounded-lg p-1.5 shadow-2xl max-h-[70vh] overflow-y-auto" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                  {cfgTab === 'layout' ? (
+                    <>
+                      {backBtn('Layout')}
+                      {VIEW_TYPES.map(t => (
+                        <button key={t.type} disabled={!t.available} onClick={() => changeViewType(activeView?.id || '', t.type)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] disabled:opacity-40" style={{ color: 'var(--notion-text)' }}>
+                          <t.icon className="w-3.5 h-3.5" /> <span className="flex-1 text-left">{t.label}</span>
+                          {vt === t.type && <Check className="w-3 h-3" />}{!t.available && <span className="text-[9px]" style={{ color: 'var(--notion-text-3)' }}>em breve</span>}
+                        </button>
+                      ))}
+                    </>
+                  ) : cfgTab === 'visibility' ? (
+                    <>
+                      {backBtn('Visibilidade da propriedade')}
+                      <p className="text-[10px] uppercase tracking-wider px-2 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Propriedades exibidas</p>
+                      {propList.map(c => (
+                        <button key={c.id} onClick={() => toggleColHidden(c.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+                          <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+                          <span className="flex-1 text-left truncate">{c.name}</span>
+                          {c.hidden ? <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} /> : <Eye className="w-3.5 h-3.5" style={{ color: 'var(--notion-accent)' }} />}
+                        </button>
+                      ))}
+                      {propList.length === 0 && <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhuma propriedade.</p>}
+                    </>
+                  ) : cfgTab === 'sort' ? (
+                    <>
+                      {backBtn('Ordenar')}
+                      <label className="block text-[10px] uppercase tracking-wider px-2 pb-1" style={{ color: 'var(--notion-text-3)' }}>Propriedade</label>
+                      <div className="px-1.5">
+                        <select value={vcfg.sort?.colId || ''} onChange={e => patchVcfg({ sort: e.target.value ? { colId: e.target.value, dir: vcfg.sort?.dir || 'asc' } : null })} className={selCls} style={selSt}>
+                          <option value="">— nenhuma —</option>
+                          {cols.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        {vcfg.sort && (
+                          <div className="flex gap-1 mt-1.5">
+                            {(['asc', 'desc'] as const).map(d => (
+                              <button key={d} onClick={() => patchVcfg({ sort: { colId: vcfg.sort!.colId, dir: d } })}
+                                className="flex-1 px-2 py-1.5 rounded text-xs" style={{ background: vcfg.sort!.dir === d ? 'var(--notion-accent)' : 'var(--notion-bg-4)', color: vcfg.sort!.dir === d ? '#fff' : 'var(--notion-text)' }}>
+                                {d === 'asc' ? 'Crescente' : 'Decrescente'}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : cfgTab === 'group' ? (
+                    <>
+                      {backBtn('Agrupar')}
+                      <label className="block text-[10px] uppercase tracking-wider px-2 pb-1" style={{ color: 'var(--notion-text-3)' }}>Agrupar por</label>
+                      <div className="px-1.5">
+                        <select value={vcfg.groupColId || ''} onChange={e => patchVcfg({ groupColId: e.target.value || null })} className={selCls} style={selSt}>
+                          <option value="">— nenhum —</option>
+                          {cols.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <p className="text-[11px] px-1 pt-2 leading-relaxed" style={{ color: 'var(--notion-text-3)' }}>Na tabela, cria seções por valor. No quadro, define as colunas.</p>
+                      </div>
+                    </>
+                  ) : cfgTab === 'filter' ? (
+                    <>
+                      {backBtn('Filtrar')}
+                      {vcfg.filters.length === 0 && <p className="text-xs px-2 py-1.5" style={{ color: 'var(--notion-text-3)' }}>Nenhum filtro. Adicione um abaixo.</p>}
+                      {vcfg.filters.map(f => (
+                        <div key={f.id} className="mb-1.5 mx-1 p-1.5 rounded-md" style={{ background: 'var(--notion-bg-2)' }}>
+                          <div className="flex items-center gap-1 mb-1">
+                            <select value={f.colId} onChange={e => setFilter(f.id, { colId: e.target.value })} className="flex-1 px-1.5 py-1 rounded text-xs outline-none" style={selSt}>
+                              {cols.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            <button onClick={() => delFilter(f.id)} className="p-1 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                          <select value={f.op} onChange={e => setFilter(f.id, { op: e.target.value as FilterCond['op'] })} className="w-full px-1.5 py-1 rounded text-xs outline-none mb-1" style={selSt}>
+                            {FILTER_OPS.map(o => <option key={o.op} value={o.op}>{o.label}</option>)}
+                          </select>
+                          {f.op !== 'empty' && f.op !== 'not_empty' && (
+                            <input value={f.value} onChange={e => setFilter(f.id, { value: e.target.value })} placeholder="Valor"
+                              className="w-full px-1.5 py-1 rounded text-xs outline-none" style={selSt} />
+                          )}
+                        </div>
+                      ))}
+                      <button onClick={addFilter} className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-2)' }}>
+                        <Plus className="w-3.5 h-3.5" /> Adicionar filtro
+                      </button>
+                    </>
+                  ) : cfgTab === 'color' ? (
+                    <>
+                      {backBtn('Cor condicional')}
+                      {vcfg.colorRules.length === 0 && <p className="text-xs px-2 py-1.5" style={{ color: 'var(--notion-text-3)' }}>Nenhuma regra. Linhas/cards ganham a cor da 1ª regra que casar.</p>}
+                      {vcfg.colorRules.map(r => (
+                        <div key={r.id} className="mb-1.5 mx-1 p-1.5 rounded-md" style={{ background: 'var(--notion-bg-2)' }}>
+                          <div className="flex items-center gap-1 mb-1">
+                            <span className="w-4 h-4 rounded flex-shrink-0" style={{ background: r.color, border: '1px solid rgba(255,255,255,0.15)' }} />
+                            <select value={r.colId} onChange={e => setColorRule(r.id, { colId: e.target.value })} className="flex-1 px-1.5 py-1 rounded text-xs outline-none" style={selSt}>
+                              {cols.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            <button onClick={() => delColor(r.id)} className="p-1 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                          <select value={r.op} onChange={e => setColorRule(r.id, { op: e.target.value as ColorRule['op'] })} className="w-full px-1.5 py-1 rounded text-xs outline-none mb-1" style={selSt}>
+                            {FILTER_OPS.map(o => <option key={o.op} value={o.op}>{o.label}</option>)}
+                          </select>
+                          {r.op !== 'empty' && r.op !== 'not_empty' && (
+                            <input value={r.value} onChange={e => setColorRule(r.id, { value: e.target.value })} placeholder="Valor"
+                              className="w-full px-1.5 py-1 rounded text-xs outline-none mb-1.5" style={selSt} />
+                          )}
+                          <div className="flex flex-wrap gap-1">
+                            {OPTION_COLORS.map(c => (
+                              <button key={c.hex} onClick={() => setColorRule(r.id, { color: c.hex })} title={c.name}
+                                className="w-4 h-4 rounded" style={{ background: c.hex, outline: r.color === c.hex ? '2px solid var(--notion-text)' : 'none', outlineOffset: '1px' }} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={addColor} className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-2)' }}>
+                        <Plus className="w-3.5 h-3.5" /> Adicionar regra
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[10px] uppercase tracking-wider px-2 pt-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Ver configurações</p>
+                      <SettingsRow icon={viewMeta(vt).icon} label="Layout" value={viewMeta(vt).label} arrow onClick={() => setCfgTab('layout')} />
+                      <SettingsRow icon={Eye} label="Visibilidade da propriedade" value={String(visibleCount)} arrow onClick={() => setCfgTab('visibility')} />
+                      <SettingsRow icon={Filter} label="Filtrar" value={vcfg.filters.length ? String(vcfg.filters.length) : undefined} arrow onClick={() => setCfgTab('filter')} />
+                      <SettingsRow icon={ArrowUpDown} label="Ordenar" value={vcfg.sort ? colName(vcfg.sort.colId) : undefined} arrow onClick={() => setCfgTab('sort')} />
+                      <SettingsRow icon={Layers} label="Agrupar" value={vcfg.groupColId ? colName(vcfg.groupColId) : undefined} arrow onClick={() => setCfgTab('group')} />
+                      <SettingsRow icon={Palette} label="Cor condicional" value={vcfg.colorRules.length ? String(vcfg.colorRules.length) : undefined} arrow onClick={() => setCfgTab('color')} />
+                      <SettingsRow icon={copied ? Check : Link2} label={copied ? 'Link copiado!' : 'Copiar link para a visualização'} onClick={copyLink} />
+                      <div className="my-1 border-t" style={{ borderColor: 'var(--notion-border)' }} />
+                      <p className="text-[10px] uppercase tracking-wider px-2 pt-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Configurações da fonte de dados</p>
+                      <SettingsRow icon={Database} label="Fonte" value={sourceName} arrow onClick={() => { setCfgOpen(false); router.push(`/tabelas?t=${tableId}`) }} />
+                      <SettingsRow icon={SlidersHorizontal} label="Editar propriedades" arrow onClick={() => setCfgTab('visibility')} />
+                      <SettingsRow icon={Table2} label="Gerenciar fontes de dados" arrow onClick={() => { setCfgOpen(false); router.push('/tabelas') }} />
+                    </>
+                  )}
+                </div>
+              </>
+            )
+          })()}
         </div>
       </div>
 
       {vt === 'table' ? (
-        <DynamicTable key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId} />
+        <DynamicTable key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId}
+          viewFilters={vcfg.filters} viewSort={vcfg.sort} viewGroupColId={vcfg.groupColId} viewColorRules={vcfg.colorRules} viewSearch={q} />
       ) : vt === 'gallery' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {shown.map(r => (
-            <div key={r.id} onClick={() => setOpenRow(r.id)} className="rounded-xl p-4 border cursor-pointer transition-all hover:border-[var(--notion-accent)]" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+            <div key={r.id} onClick={() => setOpenRow(r.id)} className="rounded-xl p-4 border cursor-pointer transition-all hover:border-[var(--notion-accent)]" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)', borderLeft: cardColor(r) ? `3px solid ${cardColor(r)}` : undefined }}>
               <p className="text-sm font-medium mb-2" style={{ color: 'var(--notion-text)' }}>{titleCol ? (r.data[titleCol.id] as string) || '(sem título)' : ''}</p>
               <div className="space-y-1">{cardCols.slice(0, 4).map(c => { const f = cardField(c, r); return f ? <div key={c.id}>{f}</div> : null })}</div>
             </div>
@@ -315,7 +501,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                       onDragStart={() => setDragId(r.id)} onDragEnd={() => { setDragId(null); setOverCol(null) }}
                       onClick={() => setOpenRow(r.id)}
                       className="rounded-lg p-3 border cursor-pointer transition-all hover:border-[var(--notion-accent)]"
-                      style={{ background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)', opacity: dragId === r.id ? 0.4 : 1 }}>
+                      style={{ background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)', borderLeft: cardColor(r) ? `3px solid ${cardColor(r)}` : undefined, opacity: dragId === r.id ? 0.4 : 1 }}>
                       <p className="text-sm font-medium mb-1.5 flex items-center gap-1.5" style={{ color: 'var(--notion-text)' }}>
                         <span style={{ color: 'var(--notion-text-3)' }}>🏷</span>{titleCol ? (r.data[titleCol.id] as string) || '(sem título)' : ''}
                       </p>

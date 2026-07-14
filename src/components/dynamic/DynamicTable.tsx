@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -8,6 +8,9 @@ import {
   DBColumn, DBRow, ColumnType, SelectOption, DataSource, RollupFn, COLUMN_TYPES, AUTO_TYPES, OPTION_COLORS,
   convertValue, formatNumber,
 } from '@/types/dynamic'
+import {
+  FilterCond, SortCond, ColorRule, matchesFilters, applySort, rowColor,
+} from '@/lib/view-config'
 import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
 import { RecordPanel } from './RecordPanel'
@@ -19,8 +22,11 @@ import {
 interface Member { id: string; full_name: string }
 type Calc = 'none' | 'count' | 'filled' | 'sum' | 'avg' | 'checked'
 
-export function DynamicTable({ tableId, initialColumns, initialRows, sources: initialSources = [], members, userId }: {
+export function DynamicTable({ tableId, initialColumns, initialRows, sources: initialSources = [], members, userId,
+  viewFilters, viewSort, viewGroupColId, viewColorRules, viewSearch }: {
   tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources?: DataSource[]; members: Member[]; userId: string
+  // configuração de view opcional (Filtrar/Ordenar/Agrupar/Cor condicional). Ausente = comportamento padrão.
+  viewFilters?: FilterCond[]; viewSort?: SortCond | null; viewGroupColId?: string | null; viewColorRules?: ColorRule[]; viewSearch?: string
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -70,20 +76,43 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   const primaryColId = (visible.find(c => ['text', 'select', 'status', 'email', 'phone', 'url'].includes(c.type)) || visible[0])?.id
   const typeMeta = (t: ColumnType) => COLUMN_TYPES.find(x => x.type === t)
 
-  const sortedRows = useMemo(() => {
-    if (!sort) return [...rows].sort((a, b) => a.position - b.position)
-    const col = columns.find(c => c.id === sort.col)
-    const get = (r: DBRow) => {
-      if (col?.type === 'created_at') return r.created_at
-      if (col?.type === 'updated_at') return r.updated_at
-      return r.data[sort.col]
+  // pipeline de exibição: filtros (view) → busca (view) → ordenação (view tem prioridade, senão a do cabeçalho)
+  const displayRows = useMemo(() => {
+    let rs = rows
+    if (viewFilters && viewFilters.length) rs = rs.filter(r => matchesFilters(r, columns, viewFilters))
+    if (viewSearch && viewSearch.trim()) {
+      const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+      const needle = nrm(viewSearch)
+      rs = rs.filter(r => columns.some(c => {
+        const v = c.type === 'created_at' ? r.created_at : c.type === 'updated_at' ? r.updated_at : r.data[c.id]
+        if (v == null || v === '') return false
+        if (['select', 'status', 'multi_select'].includes(c.type)) {
+          const opts = c.config.options || []
+          return (Array.isArray(v) ? v : [v]).some(id => { const o = opts.find(x => x.id === id || x.label === id); return o && nrm(o.label).includes(needle) })
+        }
+        return nrm(Array.isArray(v) ? v.join(' ') : String(v)).includes(needle)
+      }))
     }
-    return [...rows].sort((a, b) => {
-      const av = get(a) ?? '', bv = get(b) ?? ''
-      const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv))
-      return sort.dir === 'asc' ? cmp : -cmp
-    })
-  }, [rows, sort, columns])
+    const s: SortCond | null = (viewSort ?? null) || (sort ? { colId: sort.col, dir: sort.dir } : null)
+    return applySort(rs, columns, s)
+  }, [rows, viewFilters, viewSearch, viewSort, sort, columns])
+
+  // agrupamento opcional (Agrupar por): monta seções ordenadas pela opção da coluna
+  const groupCol = viewGroupColId ? columns.find(c => c.id === viewGroupColId) : null
+  const groups = useMemo(() => {
+    if (!groupCol) return null
+    const g = groupCol
+    const map = new Map<string, { label: string; color?: string; rows: DBRow[] }>()
+    for (const r of displayRows) {
+      const raw = r.data[g.id]
+      const o = (g.config.options || []).find(x => x.id === raw || x.label === raw)
+      const keyId = o ? o.id : (raw == null || raw === '' ? '__empty__' : String(raw))
+      const label = o ? o.label : (raw == null || raw === '' ? 'Sem valor' : String(raw))
+      if (!map.has(keyId)) map.set(keyId, { label, color: o?.color, rows: [] })
+      map.get(keyId)!.rows.push(r)
+    }
+    return Array.from(map.values())
+  }, [displayRows, groupCol])
 
   // ---------- mutations ----------
   async function updateCell(rowId: string, colId: string, value: unknown) {
@@ -205,8 +234,8 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   function calcResult(col: DBColumn): string {
     const c = calc[col.id] || 'none'
     if (c === 'none') return ''
-    const vals = rows.map(r => r.data[col.id])
-    if (c === 'count') return `${rows.length}`
+    const vals = displayRows.map(r => r.data[col.id])
+    if (c === 'count') return `${displayRows.length}`
     if (c === 'filled') return `${vals.filter(v => v != null && v !== '').length}`
     if (c === 'checked') return `${vals.filter(Boolean).length}`
     const nums = vals.map(Number).filter(n => !isNaN(n))
@@ -216,6 +245,38 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   }
 
   const hiddenCount = columns.filter(c => c.hidden).length
+
+  // linha da tabela (reutilizada no modo plano e no agrupado); aplica cor condicional como barra à esquerda
+  const renderRow = (row: DBRow) => {
+    const rc = viewColorRules && viewColorRules.length ? rowColor(row, columns, viewColorRules) : null
+    return (
+      <tr key={row.id} className="group/row border-b transition-colors hover:bg-[rgba(255,255,255,0.02)]"
+        style={{ borderColor: 'rgba(255,255,255,0.05)', boxShadow: rc ? `inset 3px 0 0 ${rc}` : undefined }}>
+        {visible.map(col => (
+          <td key={col.id} className="align-top relative" style={{ borderColor: 'transparent' }}>
+            <Cell column={col} value={row.data[col.id]} members={members}
+              rowMeta={{ created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by ?? undefined, updated_by: row.updated_by ?? undefined }}
+              onChange={v => updateCell(row.id, col.id, v)}
+              onUpdateOptions={opts => updateColumnOptions(col.id, opts)}
+              sources={liveSources} row={row} tableColumns={columns}
+              onOpenRecord={(source, r) => setRecord({ source, row: r })} />
+            {col.id === primaryColId && selfSource && (
+              <button onClick={() => setRecord({ source: selfSource, row })} title="Abrir registro"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto"
+                style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
+                <PanelRight className="w-3 h-3" /> Open
+              </button>
+            )}
+          </td>
+        ))}
+        <td className="w-10 align-middle text-center">
+          <button onClick={() => deleteRow(row.id)} className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </td>
+      </tr>
+    )
+  }
 
   return (
     <div>
@@ -286,32 +347,21 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
             </tr>
           </thead>
           <tbody>
-            {sortedRows.map(row => (
-              <tr key={row.id} className="group/row border-b transition-colors hover:bg-[rgba(255,255,255,0.02)]" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                {visible.map(col => (
-                  <td key={col.id} className="align-top relative" style={{ borderColor: 'transparent' }}>
-                    <Cell column={col} value={row.data[col.id]} members={members}
-                      rowMeta={{ created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by ?? undefined, updated_by: row.updated_by ?? undefined }}
-                      onChange={v => updateCell(row.id, col.id, v)}
-                      onUpdateOptions={opts => updateColumnOptions(col.id, opts)}
-                      sources={liveSources} row={row} tableColumns={columns}
-                      onOpenRecord={(source, r) => setRecord({ source, row: r })} />
-                    {col.id === primaryColId && selfSource && (
-                      <button onClick={() => setRecord({ source: selfSource, row })} title="Abrir registro"
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto"
-                        style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
-                        <PanelRight className="w-3 h-3" /> Open
-                      </button>
-                    )}
-                  </td>
-                ))}
-                <td className="w-10 align-middle text-center">
-                  <button onClick={() => deleteRow(row.id)} className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {groups
+              ? groups.map(gr => (
+                <Fragment key={gr.label}>
+                  <tr>
+                    <td colSpan={visible.length + 1} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'var(--notion-bg-2)' }}>
+                      <div className="flex items-center gap-2 px-2.5 py-1.5">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: gr.color ? `${gr.color}22` : 'var(--notion-bg-4)', color: gr.color || 'var(--notion-text-2)' }}>{gr.label}</span>
+                        <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>{gr.rows.length}</span>
+                      </div>
+                    </td>
+                  </tr>
+                  {gr.rows.map(renderRow)}
+                </Fragment>
+              ))
+              : displayRows.map(renderRow)}
             <tr>
               <td colSpan={visible.length + 1} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
                 <button onClick={addRow} className="w-full flex items-center gap-1.5 px-2.5 py-2 text-xs hover:bg-[rgba(255,255,255,0.02)] transition-colors" style={{ color: 'var(--notion-text-3)' }}>
@@ -334,7 +384,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       </div>
 
       <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: 'var(--notion-text-3)' }}>
-        <span>Contagem {rows.length}</span>
+        <span>Contagem {displayRows.length}</span>
         {sort && <button onClick={() => setSort(null)} className="hover:text-[var(--notion-text-2)]">Limpar ordenação</button>}
         {hiddenCount > 0 && <button onClick={unhideAll} className="hover:text-[var(--notion-text-2)]">Mostrar {hiddenCount} coluna(s) oculta(s)</button>}
       </div>
