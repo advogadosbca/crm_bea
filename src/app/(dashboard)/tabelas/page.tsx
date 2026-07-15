@@ -21,12 +21,18 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
   let allCols: DBColumn[] = []
   let allRows: DBRow[] = []
   if (ids.length) {
-    const [{ data: cols }, { data: rws }] = await Promise.all([
-      supabase.from('db_columns').select('*').in('table_id', ids).order('position'),
-      supabase.from('db_rows').select('*').in('table_id', ids).order('position'),
-    ])
+    // linhas paginadas de 1000 em 1000 — o PostgREST limita cada resposta a 1000,
+    // e com milhares de registros a query única truncava (tabelas apareciam vazias).
+    const PAGE = 1000
+    for (let from = 0; ; from += PAGE) {
+      const { data } = await supabase.from('db_rows').select('*').in('table_id', ids)
+        .order('id').range(from, from + PAGE - 1)
+      if (!data || data.length === 0) break
+      allRows.push(...(data as DBRow[]))
+      if (data.length < PAGE) break
+    }
+    const { data: cols } = await supabase.from('db_columns').select('*').in('table_id', ids).order('position')
     allCols = (cols || []) as DBColumn[]
-    allRows = (rws || []) as DBRow[]
   }
 
   const columns = allCols.filter(c => c.table_id === activeId)
