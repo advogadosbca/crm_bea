@@ -5,13 +5,13 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { HeaderAssets } from '@/components/layout/EditableHeader'
-import { DynamicTable } from '@/components/dynamic/DynamicTable'
+import { DynamicBoard, DBView } from '@/components/dynamic/DynamicBoard'
 import { DBColumn, DBRow, DBTable, DataSource } from '@/types/dynamic'
 import { Table2, Plus, ChevronLeft, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import Link from 'next/link'
 
-export function TabelasClient({ tables, activeId, columns, rows, sources, members, workspaceId, userId, headerAssets }: {
-  tables: DBTable[]; activeId: string; columns: DBColumn[]; rows: DBRow[]; sources: DataSource[]
+export function TabelasClient({ tables, activeId, columns, rows, sources, views, members, workspaceId, userId, headerAssets }: {
+  tables: DBTable[]; activeId: string; columns: DBColumn[]; rows: DBRow[]; sources: DataSource[]; views: DBView[]
   members: { id: string; full_name: string }[]; workspaceId: string; userId: string; headerAssets: HeaderAssets
 }) {
   const supabase = createClient()
@@ -93,7 +93,7 @@ export function TabelasClient({ tables, activeId, columns, rows, sources, member
             Nenhuma tabela ainda. Clique em <span className="font-medium">Nova tabela</span> para começar.
           </div>
         ) : (
-          <DynamicTable key={active} tableId={active} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId} />
+          <DynamicBoard key={active} tableId={active} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId} views={views} />
         )}
       </div>
     </div>

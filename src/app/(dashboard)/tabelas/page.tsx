@@ -37,6 +37,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
     rows: allRows.filter(r => r.table_id === t.id),
   }))
 
+  // visualizações (Tabela/Quadro/…) da tabela ativa, para o toolbar com busca + configurações
+  const { data: viewRows } = activeId
+    ? await supabase.from('db_views').select('id, name, type, position').eq('table_id', activeId).order('position')
+    : { data: [] }
+  const views = (viewRows || []) as { id: string; name: string; type: string; position: number }[]
+
   return (
     <TabelasClient
       tables={tableList}
@@ -44,6 +50,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
       columns={columns}
       rows={rows}
       sources={sources}
+      views={views}
       members={members || []}
       workspaceId={ws || ''}
       userId={user!.id}

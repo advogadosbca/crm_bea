@@ -73,7 +73,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const router = useRouter()
   const [columns, setColumns] = useState(initialColumns)
   const [rows, setRows] = useState(initialRows)
-  const [views, setViews] = useState<DBView[]>(initialViews.length ? initialViews : [{ id: 'tmp', name: 'Tabela', type: 'table', position: 0 }])
+  const [views, setViews] = useState<DBView[]>(initialViews.length ? initialViews : [{ id: tableId, name: 'Tabela', type: 'table', position: 0 }])
   const [activeId, setActiveId] = useState(views[0]?.id)
   const [openRow, setOpenRow] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
