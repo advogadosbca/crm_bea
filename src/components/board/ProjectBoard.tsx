@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon, User as UserIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -216,7 +217,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   const [activity, setActivity] = useState<Activity[]>([])
   const [comment, setComment] = useState('')
   const [pop, setPop] = useState<'none' | 'members' | 'labels' | 'due' | 'contacts' | 'attach'>('none')
-  const [contacts, setContacts] = useState<{ id: string; name: string }[] | null>(null)
+  const [contacts, setContacts] = useState<{ id: string; name: string; phone?: string; source?: string }[] | null>(null)
   const [contactQuery, setContactQuery] = useState('')
   const [uploading, setUploading] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
@@ -281,11 +282,34 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
     supabase.from('board_activity').select('*').eq('card_id', card.id).order('created_at', { ascending: false }).then(({ data }) => setActivity((data || []) as Activity[]))
   }
 
-  // carrega os contatos só quando o popover de clientes abre
+  // carrega os clientes das fontes de dados dinâmicas (Leads + Contatos), só quando o popover abre
   useEffect(() => {
     if (pop !== 'contacts' || contacts !== null) return
-    supabase.from('contacts').select('id, name').eq('workspace_id', workspaceId).order('name')
-      .then(({ data }) => setContacts((data || []) as { id: string; name: string }[]))
+    ;(async () => {
+      const { data: tbls } = await supabase.from('db_tables').select('id, name, module_key')
+        .eq('workspace_id', workspaceId)
+        .or('module_key.in.(fonte-leads,fonte-contatos),name.in.(Leads,Contatos)')
+      const ids = (tbls || []).map(t => t.id)
+      if (!ids.length) { setContacts([]); return }
+      const [{ data: cols }, { data: rws }] = await Promise.all([
+        supabase.from('db_columns').select('*').in('table_id', ids).order('position'),
+        supabase.from('db_rows').select('*').in('table_id', ids).order('position'),
+      ])
+      const colsByTable = new Map<string, DBColumn[]>()
+      for (const c of (cols || []) as DBColumn[]) { const arr = colsByTable.get(c.table_id) || []; arr.push(c); colsByTable.set(c.table_id, arr) }
+      const list = ((rws || []) as DBRow[]).map(r => {
+        const tcols = colsByTable.get(r.table_id) || []
+        const phoneCol = tcols.find(c => c.type === 'phone')
+        return {
+          id: r.id,
+          name: primaryValue(r, tcols),
+          phone: phoneCol ? String(r.data[phoneCol.id] ?? '') : '',
+          source: (tbls || []).find(t => t.id === r.table_id)?.name,
+        }
+      }).filter(x => x.name && x.name !== '(sem título)')
+      list.sort((a, b) => a.name.localeCompare(b.name))
+      setContacts(list)
+    })()
   }, [pop, contacts, supabase, workspaceId])
 
   async function toggleContact(cid: string, name: string) {
@@ -497,16 +521,21 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
             {contacts === null ? (
               <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Carregando...</p>
             ) : (() => {
-              const filtered = contacts.filter(c => (c.name || '').toLowerCase().includes(contactQuery.toLowerCase()))
+              const nq = contactQuery.toLowerCase().trim()
+              const filtered = contacts.filter(c => !nq || (c.name || '').toLowerCase().includes(nq) || (c.phone || '').toLowerCase().includes(nq))
+              if (contacts.length === 0) return <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhum registro nas fontes Leads/Contatos.</p>
               if (filtered.length === 0) return <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhum cliente encontrado.</p>
               return (
                 <div className="space-y-0.5">
-                  {filtered.slice(0, 60).map(c => {
+                  {filtered.slice(0, 100).map(c => {
                     const on = linkedContacts.some(x => x.contactId === c.id)
                     return (
                       <button key={c.id} onClick={() => toggleContact(c.id, c.name)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
                         <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{(c.name || '?')[0]?.toUpperCase()}</span>
-                        <span className="flex-1 text-left truncate">{c.name || '(sem nome)'}</span>
+                        <span className="flex-1 min-w-0 text-left">
+                          <span className="block truncate">{c.name || '(sem nome)'}</span>
+                          {(c.phone || c.source) && <span className="block truncate text-[10px]" style={{ color: 'var(--notion-text-3)' }}>{[c.phone, c.source].filter(Boolean).join(' · ')}</span>}
+                        </span>
                         {on && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
                       </button>
                     )
