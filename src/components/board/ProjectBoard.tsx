@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon, User as UserIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
+  Paperclip, Users, Search, Link2, Download, Loader2, FileText,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -214,11 +215,31 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   const [editDesc, setEditDesc] = useState(false)
   const [activity, setActivity] = useState<Activity[]>([])
   const [comment, setComment] = useState('')
-  const [pop, setPop] = useState<'none' | 'members' | 'labels' | 'due'>('none')
+  const [pop, setPop] = useState<'none' | 'members' | 'labels' | 'due' | 'contacts' | 'attach'>('none')
+  const [contacts, setContacts] = useState<{ id: string; name: string }[] | null>(null)
+  const [contactQuery, setContactQuery] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkText, setLinkText] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const member = (id: string) => members.find(m => m.id === id)
   const today = new Date().toISOString().split('T')[0]
   const overdue = card.due_date && card.due_date.split('T')[0] < today
+
+  // anexos e clientes vinculados são guardados em board_activity (kinds 'attachment' e 'contact')
+  const safeParse = (t: string): Record<string, string> => { try { const v = JSON.parse(t); return v && typeof v === 'object' ? v : {} } catch { return {} } }
+  const attachments = activity.filter(a => a.kind === 'attachment').map(a => { const p = safeParse(a.text); return { act: a, name: p.name, url: p.url, path: p.path } })
+  const linkedContacts = (() => {
+    const seen = new Set<string>(); const out: { actId: string; contactId: string; name: string }[] = []
+    for (const a of activity) {
+      if (a.kind !== 'contact') continue
+      const p = safeParse(a.text)
+      if (p.contactId && !seen.has(p.contactId)) { seen.add(p.contactId); out.push({ actId: a.id, contactId: p.contactId, name: p.name || 'Cliente' }) }
+    }
+    return out
+  })()
+  const history = activity.filter(a => a.kind === 'event' || a.kind === 'comment')
 
   useEffect(() => {
     supabase.from('board_activity').select('*').eq('card_id', card.id).order('created_at', { ascending: false })
@@ -259,6 +280,51 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   function refreshActivity() {
     supabase.from('board_activity').select('*').eq('card_id', card.id).order('created_at', { ascending: false }).then(({ data }) => setActivity((data || []) as Activity[]))
   }
+
+  // carrega os contatos só quando o popover de clientes abre
+  useEffect(() => {
+    if (pop !== 'contacts' || contacts !== null) return
+    supabase.from('contacts').select('id, name').eq('workspace_id', workspaceId).order('name')
+      .then(({ data }) => setContacts((data || []) as { id: string; name: string }[]))
+  }, [pop, contacts, supabase, workspaceId])
+
+  async function toggleContact(cid: string, name: string) {
+    const existing = activity.find(a => a.kind === 'contact' && safeParse(a.text)?.contactId === cid)
+    if (existing) await supabase.from('board_activity').delete().eq('id', existing.id)
+    else await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'contact', text: JSON.stringify({ contactId: cid, name }) })
+    refreshActivity()
+  }
+
+  async function uploadFiles(files: FileList | null) {
+    if (!files || !files.length) return
+    setUploading(true)
+    for (const file of Array.from(files)) {
+      const safe = file.name.replace(/[^\w.\-]+/g, '_')
+      const path = `board/${card.id}/${Date.now()}-${safe}`
+      const { error } = await supabase.storage.from('assets').upload(path, file, { upsert: true })
+      if (error) { alert(`Falha ao enviar "${file.name}": ${error.message}`); continue }
+      const { data } = supabase.storage.from('assets').getPublicUrl(path)
+      await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'attachment', text: JSON.stringify({ name: file.name, url: data.publicUrl, path }) })
+    }
+    setUploading(false); setPop('none'); refreshActivity()
+  }
+
+  async function addLinkAttachment() {
+    const url = linkUrl.trim(); if (!url) return
+    const href = /^https?:\/\//i.test(url) ? url : `https://${url}`
+    await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'attachment', text: JSON.stringify({ name: linkText.trim() || url, url: href }) })
+    setLinkUrl(''); setLinkText(''); setPop('none'); refreshActivity()
+  }
+
+  async function removeAttachment(a: Activity) {
+    if (!confirm('Remover este anexo?')) return
+    const p = safeParse(a.text)
+    if (p?.path) { try { await supabase.storage.from('assets').remove([p.path]) } catch { /* noop */ } }
+    await supabase.from('board_activity').delete().eq('id', a.id)
+    refreshActivity()
+  }
+
+  const isImg = (u?: string) => !!u && /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u)
   async function addComment() {
     if (!comment.trim()) return
     await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'comment', text: comment.trim() })
@@ -303,7 +369,25 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                 {card.labels.map(lid => { const l = labels.find(x => x.id === lid); return l ? <span key={lid} className="px-2 py-1 rounded text-xs font-medium" style={{ background: l.color, color: '#fff' }}>{l.name}</span> : null })}
               </div>
               <button onClick={() => setPop(pop === 'labels' ? 'none' : 'labels')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><TagIcon className="w-3.5 h-3.5" /> Etiquetas</button>
+              <button onClick={() => setPop(pop === 'contacts' ? 'none' : 'contacts')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Users className="w-3.5 h-3.5" /> Cliente</button>
+              <button onClick={() => setPop(pop === 'attach' ? 'none' : 'attach')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Paperclip className="w-3.5 h-3.5" /> Anexo</button>
             </div>
+
+            {/* clientes vinculados */}
+            {linkedContacts.length > 0 && (
+              <div>
+                <span className="text-xs font-medium flex items-center gap-1.5 mb-1.5" style={{ color: 'var(--notion-text-3)' }}><Users className="w-3.5 h-3.5" /> Clientes</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {linkedContacts.map(c => (
+                    <span key={c.contactId} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+                      <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{c.name[0]?.toUpperCase()}</span>
+                      {c.name}
+                      <button onClick={() => toggleContact(c.contactId, c.name)} className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* prazo */}
             <div className="relative">
@@ -335,6 +419,32 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                 </div>
               )}
             </div>
+
+            {/* anexos */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-medium flex items-center gap-1.5" style={{ color: 'var(--notion-text-3)' }}><Paperclip className="w-3.5 h-3.5" /> Anexos</span>
+                <button onClick={() => setPop('attach')} className="text-xs flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Plus className="w-3 h-3" /> Adicionar</button>
+              </div>
+              {attachments.length === 0 ? (
+                <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-3)' }}>Nenhum anexo. Envie um arquivo ou cole um link.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {attachments.map(({ act, name, url }) => (
+                    <div key={act.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                      {isImg(url) ? (
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0"><img src={url} alt={name} className="w-10 h-10 rounded object-cover" style={{ border: '1px solid var(--notion-border)' }} /></a>
+                      ) : (
+                        <span className="w-10 h-10 rounded flex items-center justify-center flex-shrink-0" style={{ background: 'var(--notion-bg-4)' }}><FileText className="w-5 h-5" style={{ color: 'var(--notion-text-2)' }} /></span>
+                      )}
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 text-sm truncate hover:underline" style={{ color: 'var(--notion-text)' }} title={name}>{name || url}</a>
+                      <a href={url} target="_blank" rel="noopener noreferrer" download className="p-1.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }} title="Abrir/baixar"><Download className="w-3.5 h-3.5" /></a>
+                      <button onClick={() => removeAttachment(act)} className="p-1.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }} title="Remover"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* coluna histórico */}
@@ -345,8 +455,8 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
               <button onClick={addComment} className="px-2 rounded-lg text-xs" style={{ background: 'var(--notion-accent)', color: '#fff' }}>Enviar</button>
             </div>
             <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-              {activity.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem atividades ainda.</p>}
-              {activity.map(a => { const m = member(a.user_id || '') ; return (
+              {history.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem atividades ainda.</p>}
+              {history.map(a => { const m = member(a.user_id || '') ; return (
                 <div key={a.id} className="flex gap-2">
                   <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m?.full_name?.[0] || '?'}</span>
                   <div className="min-w-0 flex-1">
@@ -377,6 +487,47 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
         )}
         {pop === 'labels' && (
           <LabelsPopover labels={labels} active={card.labels} onToggle={toggleLabel} onCreate={createLabel} onUpdate={updateLabel} onClose={() => setPop('none')} />
+        )}
+        {pop === 'contacts' && (
+          <Popover title="Vincular cliente" onClose={() => setPop('none')}>
+            <div className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded" style={{ background: 'var(--notion-bg-4)' }}>
+              <Search className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} />
+              <input autoFocus value={contactQuery} onChange={e => setContactQuery(e.target.value)} placeholder="Buscar cliente..." className="bg-transparent text-xs outline-none flex-1" style={{ color: 'var(--notion-text)' }} />
+            </div>
+            {contacts === null ? (
+              <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Carregando...</p>
+            ) : (() => {
+              const filtered = contacts.filter(c => (c.name || '').toLowerCase().includes(contactQuery.toLowerCase()))
+              if (filtered.length === 0) return <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhum cliente encontrado.</p>
+              return (
+                <div className="space-y-0.5">
+                  {filtered.slice(0, 60).map(c => {
+                    const on = linkedContacts.some(x => x.contactId === c.id)
+                    return (
+                      <button key={c.id} onClick={() => toggleContact(c.id, c.name)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{(c.name || '?')[0]?.toUpperCase()}</span>
+                        <span className="flex-1 text-left truncate">{c.name || '(sem nome)'}</span>
+                        {on && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </Popover>
+        )}
+        {pop === 'attach' && (
+          <Popover title="Anexar" onClose={() => setPop('none')}>
+            <input ref={fileRef} type="file" multiple className="hidden" onChange={e => { uploadFiles(e.target.files); if (fileRef.current) fileRef.current.value = '' }} />
+            <p className="text-xs font-medium mb-1" style={{ color: 'var(--notion-text)' }}>Anexe um arquivo do seu computador</p>
+            <button disabled={uploading} onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 px-2 py-2 rounded-lg text-xs mb-3 disabled:opacity-60" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)' }}>
+              {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Enviando...</> : 'Escolher um arquivo'}
+            </button>
+            <p className="text-xs font-medium mb-1" style={{ color: 'var(--notion-text)' }}>Ou cole um link</p>
+            <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addLinkAttachment() }} placeholder="Cole um link..." className="w-full px-2 py-1.5 mb-1.5 rounded text-xs outline-none" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)' }} />
+            <input value={linkText} onChange={e => setLinkText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addLinkAttachment() }} placeholder="Texto para exibição (opcional)" className="w-full px-2 py-1.5 mb-2 rounded text-xs outline-none" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)' }} />
+            <button onClick={addLinkAttachment} disabled={!linkUrl.trim()} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium disabled:opacity-50" style={{ background: 'var(--notion-accent)', color: '#fff' }}><Link2 className="w-3.5 h-3.5" /> Anexar link</button>
+          </Popover>
         )}
       </div>
     </div>
