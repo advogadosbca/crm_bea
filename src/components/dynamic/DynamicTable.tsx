@@ -16,11 +16,15 @@ import { Cell } from './Cell'
 import { RecordPanel } from './RecordPanel'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
-  Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight,
+  Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2,
 } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
 type Calc = 'none' | 'count' | 'filled' | 'sum' | 'avg' | 'checked'
+
+// dono atual do Ctrl+Z: quando há várias tabelas na tela, só a última em que
+// o usuário mexeu responde ao desfazer (evita desfazer em todas de uma vez).
+let undoOwner: string | null = null
 
 export function DynamicTable({ tableId, initialColumns, initialRows, sources: initialSources = [], members, userId,
   viewFilters, viewSort, viewGroupColId, viewColorRules, viewSearch }: {
@@ -114,6 +118,37 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     return Array.from(map.values())
   }, [displayRows, groupCol])
 
+  // ---------- desfazer (Ctrl+Z) para ações estruturais ----------
+  const uid = useRef(Math.random().toString(36).slice(2))
+  const undoStack = useRef<{ label: string; run: () => Promise<void> }[]>([])
+  const [undoDepth, setUndoDepth] = useState(0)
+  const [undoMsg, setUndoMsg] = useState<string | null>(null)
+  const rowsRef = useRef(rows); rowsRef.current = rows
+  const flashUndo = (m: string) => { setUndoMsg(m); window.setTimeout(() => setUndoMsg(c => (c === m ? null : c)), 2400) }
+  const pushUndo = (label: string, run: () => Promise<void>) => {
+    undoStack.current.push({ label, run })
+    if (undoStack.current.length > 60) undoStack.current.shift()
+    setUndoDepth(undoStack.current.length)
+    undoOwner = uid.current
+  }
+  const doUndo = async () => {
+    const a = undoStack.current.pop()
+    setUndoDepth(undoStack.current.length)
+    if (!a) { flashUndo('Nada para desfazer'); return }
+    try { await a.run(); flashUndo(`Desfeito: ${a.label}`) } catch { flashUndo('Não consegui desfazer') }
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
+      if (undoOwner !== uid.current) return // só a última tabela mexida responde
+      const el = document.activeElement as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return // deixa o Ctrl+Z nativo no campo
+      e.preventDefault(); void doUndo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, []) // handlers leem refs (estáveis)
+
   // ---------- mutations ----------
   async function updateCell(rowId: string, colId: string, value: unknown) {
     const row = rows.find(r => r.id === rowId)!
@@ -161,11 +196,25 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   async function addRow() {
     const position = rows.length
     const { data } = await supabase.from('db_rows').insert({ table_id: tableId, data: {}, position, created_by: userId, updated_by: userId }).select('*').single()
-    if (data) setRows(rs => [...rs, data as DBRow])
+    if (data) {
+      setRows(rs => [...rs, data as DBRow])
+      pushUndo('adicionar linha', async () => {
+        setRows(rs => rs.filter(r => r.id !== data.id))
+        await supabase.from('db_rows').delete().eq('id', data.id)
+      })
+    }
   }
   async function deleteRow(id: string) {
+    const row = rows.find(r => r.id === id)
     setRows(rs => rs.filter(r => r.id !== id))
     await supabase.from('db_rows').delete().eq('id', id)
+    if (row) pushUndo('excluir linha', async () => {
+      const { data } = await supabase.from('db_rows').insert({
+        id: row.id, table_id: row.table_id, data: row.data, position: row.position,
+        created_by: row.created_by ?? userId, updated_by: row.updated_by ?? userId,
+      }).select('*').single()
+      if (data) setRows(rs => [...rs, data as DBRow])
+    })
   }
   async function addColumn(type: ColumnType, atPosition: number) {
     // empurra posições
@@ -178,16 +227,29 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       await Promise.all(shifted.filter(c => c.position !== columns.find(o => o.id === c.id)?.position).map(c =>
         supabase.from('db_columns').update({ position: c.position }).eq('id', c.id)))
       setColumns([...shifted, data as DBColumn])
+      pushUndo('adicionar coluna', async () => {
+        setColumns(cs => cs.filter(c => c.id !== data.id))
+        await supabase.from('db_columns').delete().eq('id', data.id)
+      })
     }
   }
   async function renameColumn(colId: string, name: string) {
+    const oldName = columns.find(c => c.id === colId)?.name
     setColumns(cs => cs.map(c => c.id === colId ? { ...c, name } : c))
     setRenaming(null)
     await supabase.from('db_columns').update({ name }).eq('id', colId)
+    if (oldName !== undefined && oldName !== name) pushUndo('renomear coluna', async () => {
+      setColumns(cs => cs.map(c => c.id === colId ? { ...c, name: oldName } : c))
+      await supabase.from('db_columns').update({ name: oldName }).eq('id', colId)
+    })
   }
   async function hideColumn(colId: string) {
     setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden: true } : c)); setMenuCol(null)
     await supabase.from('db_columns').update({ hidden: true }).eq('id', colId)
+    pushUndo('ocultar coluna', async () => {
+      setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden: false } : c))
+      await supabase.from('db_columns').update({ hidden: false }).eq('id', colId)
+    })
   }
   async function unhideAll() {
     setColumns(cs => cs.map(c => ({ ...c, hidden: false })))
@@ -204,13 +266,26 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       setRows(updates)
       setColumns(cs => [...cs, newCol as DBColumn])
       await Promise.all(updates.map(r => supabase.from('db_rows').update({ data: r.data }).eq('id', r.id)))
+      pushUndo('duplicar coluna', async () => {
+        setColumns(cs => cs.filter(c => c.id !== newCol.id))
+        await supabase.from('db_columns').delete().eq('id', newCol.id)
+      })
     }
   }
   async function deleteColumn(colId: string) {
     if (!confirm('Excluir esta coluna e todos os seus valores?')) return
     setMenuCol(null)
+    const col = columns.find(c => c.id === colId)
     setColumns(cs => cs.filter(c => c.id !== colId))
     await supabase.from('db_columns').delete().eq('id', colId)
+    // os valores em db_rows.data[colId] não são apagados, então voltam junto com a coluna
+    if (col) pushUndo('excluir coluna', async () => {
+      const { data } = await supabase.from('db_columns').insert({
+        id: col.id, table_id: col.table_id, name: col.name, type: col.type,
+        config: col.config, position: col.position, hidden: col.hidden,
+      }).select('*').single()
+      if (data) setColumns(cs => [...cs, data as DBColumn].sort((a, b) => a.position - b.position))
+    })
   }
   async function changeType(col: DBColumn, to: ColumnType) {
     // converte valores
@@ -225,10 +300,24 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     if (to === 'relation' || to === 'rollup') setSubmenu('edit')
     else { setMenuCol(null); setSubmenu('none') }
     const config = ['select', 'status', 'multi_select'].includes(to) ? { options: col.config.options || [] } : {}
+    // snapshot p/ desfazer: tipo, config e valor antigo de cada linha
+    const oldType = col.type, oldConfig = col.config
+    const oldValues = rows.map(r => ({ id: r.id, v: r.data[col.id] }))
     setColumns(cs => cs.map(c => c.id === col.id ? { ...c, type: to, config } : c))
     setRows(rs => rs.map(r => { const c = converted.find(x => x.id === r.id); return c ? { ...r, data: c.data } : r }))
     await supabase.from('db_columns').update({ type: to, config }).eq('id', col.id)
     await Promise.all(converted.map(c => supabase.from('db_rows').update({ data: c.data }).eq('id', c.id)))
+    pushUndo(`alterar tipo de "${col.name}"`, async () => {
+      // restaura tipo/config e os valores antigos (mesclando no data atual de cada linha)
+      const updates = oldValues.map(o => {
+        const cur = rowsRef.current.find(r => r.id === o.id)
+        return { id: o.id, data: { ...(cur?.data || {}), [col.id]: o.v } }
+      })
+      setColumns(cs => cs.map(c => c.id === col.id ? { ...c, type: oldType, config: oldConfig } : c))
+      setRows(rs => rs.map(r => { const u = updates.find(x => x.id === r.id); return u ? { ...r, data: u.data } : r }))
+      await supabase.from('db_columns').update({ type: oldType, config: oldConfig }).eq('id', col.id)
+      await Promise.all(updates.map(u => supabase.from('db_rows').update({ data: u.data }).eq('id', u.id)))
+    })
   }
 
   function calcResult(col: DBColumn): string {
@@ -279,7 +368,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   }
 
   return (
-    <div>
+    <div onMouseDownCapture={() => { undoOwner = uid.current }}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -387,7 +476,19 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
         <span>Contagem {displayRows.length}</span>
         {sort && <button onClick={() => setSort(null)} className="hover:text-[var(--notion-text-2)]">Limpar ordenação</button>}
         {hiddenCount > 0 && <button onClick={unhideAll} className="hover:text-[var(--notion-text-2)]">Mostrar {hiddenCount} coluna(s) oculta(s)</button>}
+        {undoDepth > 0 && (
+          <button onClick={() => doUndo()} className="inline-flex items-center gap-1 hover:text-[var(--notion-text-2)]" title="Desfazer última ação (Ctrl+Z)">
+            <Undo2 className="w-3.5 h-3.5" /> Desfazer ({undoDepth})
+          </button>
+        )}
       </div>
+
+      {undoMsg && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] px-3 py-2 rounded-lg text-xs shadow-2xl animate-fade-in"
+          style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+          {undoMsg}
+        </div>
+      )}
 
       {record && (
         <RecordPanel record={record} sources={liveSources} members={members}
