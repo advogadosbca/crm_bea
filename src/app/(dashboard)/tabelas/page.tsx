@@ -13,7 +13,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
     supabase.from('profiles').select('id, full_name').eq('workspace_id', ws || ''),
   ])
 
-  const tableList = (tables || []) as DBTable[]
+  // fontes financeiras (fin-*) ficam só na aba Financeiro (restrita a admin) — fora daqui
+  const tableList = ((tables || []) as DBTable[]).filter(x => !String(x.module_key || '').startsWith('fin-'))
   const activeId = (t && tableList.some(x => x.id === t)) ? t : tableList[0]?.id
 
   // carrega colunas e linhas de TODAS as fontes (para Relação/Rollup)

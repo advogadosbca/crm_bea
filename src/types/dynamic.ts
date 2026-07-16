@@ -53,6 +53,7 @@ export interface DBTable {
   name: string
   icon?: string
   position: number
+  module_key?: string | null
 }
 
 export interface DataSource { id: string; name: string; columns: DBColumn[]; rows: DBRow[] }
