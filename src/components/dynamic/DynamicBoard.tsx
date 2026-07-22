@@ -3,7 +3,10 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, OPTION_COLORS, isColumnHidden } from '@/types/dynamic'
+import {
+  DBColumn, DBRow, DataSource, SelectOption, formatNumber, OPTION_COLORS, isColumnHidden,
+  relationRows, relationLabel, rollupText,
+} from '@/types/dynamic'
 import {
   ViewConfig, FilterCond, ColorRule, QuickFilter, FILTER_OPS,
   matchesFilters, matchesQuick, quickCount, applySort, rowColor, loadViewConfig, saveViewConfig,
@@ -17,7 +20,7 @@ import { COLUMN_TYPES } from '@/types/dynamic'
 import {
   LayoutGrid, Table2, Plus, X, MessageSquare, List as ListIcon, Image as ImageIcon, Calendar as CalIcon,
   BarChart3, LayoutDashboard, GanttChart, Rss, Map as MapIcon, MoreHorizontal, Pencil, Copy, Trash2, Repeat, Check,
-  Search, SlidersHorizontal, Eye, EyeOff,
+  Search, SlidersHorizontal, Eye, EyeOff, ArrowUpRight, Paperclip,
   ChevronRight, Filter, ArrowUpDown, Layers, Palette, Link2, Database,
 } from 'lucide-react'
 
@@ -251,7 +254,9 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const groupCol = (effGroupColId ? ordered.find(c => c.id === effGroupColId) : null) || ordered.find(c => c.type === 'status') || ordered.find(c => c.type === 'select')
   const titleCol = ordered.find(c => c.type === 'text') || ordered[0]
   const peopleCol = ordered.find(c => c.type === 'people')
-  const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !['files'].includes(c.type) && !isColumnHidden(c, activeId))
+  // tudo que estiver visível na visualização entra no card (inclusive relação/rollup);
+  // esconder é papel de "Propriedades exibidas"
+  const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !isColumnHidden(c, activeId))
   const opt = (col: DBColumn, v: unknown) => (col.config.options || []).find(o => o.id === v || o.label === v)
 
   // pipeline das views não-tabela: filtros (Filtrar) → busca (lupa) → ordenação (Ordenar)
@@ -336,10 +341,44 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
 
   function cardField(col: DBColumn, row: DBRow) {
     const v = row.data[col.id]
+    // relação e rollup são calculados a partir de outra tabela: sem valor bruto para checar
+    if (col.type === 'relation') {
+      const rel = relationRows(col, v, sources)
+      if (!rel || rel.rows.length === 0) return null
+      return (
+        <span className="flex flex-wrap gap-1">
+          {rel.rows.map(r => (
+            <span key={r.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] max-w-full"
+              style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>
+              <ArrowUpRight className="w-2.5 h-2.5 flex-shrink-0" />
+              <span className="truncate">{relationLabel(r, rel.source, col)}</span>
+            </span>
+          ))}
+        </span>
+      )
+    }
+    if (col.type === 'rollup') {
+      const out = rollupText(col, row, columns, sources)
+      return out ? <span className="text-xs block truncate" style={{ color: 'var(--notion-text-2)' }}>{out}</span> : null
+    }
     if (v == null || v === '') return null
     if (col.type === 'select' || col.type === 'status') {
       const o = opt(col, v); if (!o) return null
       return <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: `${o.color}22`, color: o.color }}>{o.label}</span>
+    }
+    if (col.type === 'multi_select') {
+      const ids = Array.isArray(v) ? v : [v]
+      const opts = ids.map(id => opt(col, id)).filter(Boolean) as SelectOption[]
+      if (!opts.length) return null
+      return (
+        <span className="flex flex-wrap gap-1">
+          {opts.map(o => <span key={o.id} className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: `${o.color}22`, color: o.color }}>{o.label}</span>)}
+        </span>
+      )
+    }
+    if (col.type === 'files') {
+      const n = Array.isArray(v) ? v.length : 0
+      return n ? <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: 'var(--notion-text-3)' }}><Paperclip className="w-2.5 h-2.5" />{n} arquivo(s)</span> : null
     }
     if (col.type === 'number') return <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>{formatNumber(v, col.config.format)}</span>
     if (col.type === 'date') return <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>{new Date(String(v) + (String(v).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')}</span>

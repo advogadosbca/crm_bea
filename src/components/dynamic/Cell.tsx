@@ -3,7 +3,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { uploadFile } from '@/lib/upload'
-import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, primaryValue, displayValue, OPTION_COLORS } from '@/types/dynamic'
+import {
+  DBColumn, DBRow, DataSource, SelectOption, formatNumber, primaryValue, OPTION_COLORS,
+  relationLabel, rollupText,
+} from '@/types/dynamic'
 import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -263,15 +266,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
       onChange(next)
     }
     // rótulo do chip: campos escolhidos (displayColIds) ou o título da linha
-    const displayIds = config.displayColIds || []
-    const relLabel = (r: DBRow) => {
-      if (!displayIds.length) return primaryValue(r, source.columns)
-      const parts = displayIds.map(id => {
-        const c = source.columns.find(x => x.id === id)
-        return c ? displayValue(r.data[id], c) : ''
-      }).filter(Boolean)
-      return parts.join(' · ') || primaryValue(r, source.columns)
-    }
+    const relLabel = (r: DBRow) => relationLabel(r, source, column)
     return (
       <div className="relative w-full">
         <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e, 240) }}>
@@ -299,22 +294,8 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     const relCol = tableColumns.find(c => c.id === config.relationColId)
     const source = sources.find(s => s.id === relCol?.config.sourceTableId)
     const targetCol = source?.columns.find(c => c.id === config.targetColId)
-    if (!relCol || !source || !targetCol) return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }} title="Configure o rollup no menu da coluna">—</div>
-    const relIds: string[] = Array.isArray(row?.data[relCol.id]) ? row!.data[relCol.id] as string[] : []
-    const relRows = relIds.map(id => source.rows.find(r => r.id === id)).filter(Boolean) as DBRow[]
-    const vals = relRows.map(r => r.data[targetCol.id])
-    let out = ''
-    const fn = config.rollupFn || 'concat' // sem cálculo => só puxa/concatena o valor do campo
-    if (fn === 'count') out = String(relRows.length)
-    else if (fn === 'concat') out = relRows.map(r => displayValue(r.data[targetCol.id], targetCol)).filter(Boolean).join(', ')
-    else {
-      const nums = vals.map(Number).filter(n => !isNaN(n))
-      if (fn === 'sum') out = formatNumber(nums.reduce((a, b) => a + b, 0), targetCol.config.format)
-      else if (fn === 'avg') out = formatNumber(nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0, targetCol.config.format)
-      else if (fn === 'min') out = nums.length ? formatNumber(Math.min(...nums), targetCol.config.format) : ''
-      else if (fn === 'max') out = nums.length ? formatNumber(Math.max(...nums), targetCol.config.format) : ''
-    }
-    return <div className={cellBase + ' font-mono text-xs'} style={{ color: 'var(--notion-text-2)' }}>{out}</div>
+    if (!relCol || !source || !targetCol || !row) return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }} title="Configure o rollup no menu da coluna">—</div>
+    return <div className={cellBase + ' font-mono text-xs'} style={{ color: 'var(--notion-text-2)' }}>{rollupText(column, row, tableColumns, sources)}</div>
   }
 
   // ---- auto (read-only) ----

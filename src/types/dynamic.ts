@@ -148,6 +148,45 @@ export function displayValue(value: unknown, col: DBColumn): string {
   }
 }
 
+/** fonte + linhas apontadas por uma célula de relação (na ordem do valor). */
+export function relationRows(col: DBColumn, value: unknown, sources: DataSource[]): { source: DataSource; rows: DBRow[] } | null {
+  const source = sources.find(s => s.id === col.config.sourceTableId)
+  if (!source) return null
+  const ids: string[] = Array.isArray(value) ? value as string[] : (value ? [String(value)] : [])
+  return { source, rows: ids.map(id => source.rows.find(r => r.id === id)).filter(Boolean) as DBRow[] }
+}
+
+/** rótulo de um registro relacionado: os campos escolhidos (displayColIds) ou o título. */
+export function relationLabel(row: DBRow, source: DataSource, col: DBColumn): string {
+  const ids = col.config.displayColIds || []
+  if (!ids.length) return primaryValue(row, source.columns)
+  const parts = ids.map(id => {
+    const c = source.columns.find(x => x.id === id)
+    return c ? displayValue(row.data[id], c) : ''
+  }).filter(Boolean)
+  return parts.join(' · ') || primaryValue(row, source.columns)
+}
+
+/** valor calculado de um rollup (vazio se a configuração estiver incompleta). */
+export function rollupText(col: DBColumn, row: DBRow, tableColumns: DBColumn[], sources: DataSource[]): string {
+  const relCol = tableColumns.find(c => c.id === col.config.relationColId)
+  const source = sources.find(s => s.id === relCol?.config.sourceTableId)
+  const targetCol = source?.columns.find(c => c.id === col.config.targetColId)
+  if (!relCol || !source || !targetCol) return ''
+  const ids: string[] = Array.isArray(row.data[relCol.id]) ? row.data[relCol.id] as string[] : []
+  const rows = ids.map(id => source.rows.find(r => r.id === id)).filter(Boolean) as DBRow[]
+  const fn = col.config.rollupFn || 'concat' // sem cálculo => só puxa/concatena o valor do campo
+  if (fn === 'count') return String(rows.length)
+  if (fn === 'concat') return rows.map(r => displayValue(r.data[targetCol.id], targetCol)).filter(Boolean).join(', ')
+  const nums = rows.map(r => Number(r.data[targetCol.id])).filter(n => !isNaN(n))
+  const fmt = targetCol.config.format
+  if (fn === 'sum') return formatNumber(nums.reduce((a, b) => a + b, 0), fmt)
+  if (fn === 'avg') return formatNumber(nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0, fmt)
+  if (fn === 'min') return nums.length ? formatNumber(Math.min(...nums), fmt) : ''
+  if (fn === 'max') return nums.length ? formatNumber(Math.max(...nums), fmt) : ''
+  return ''
+}
+
 export function formatNumber(v: unknown, format?: ColumnConfig['format']): string {
   const n = Number(v)
   if (v === null || v === undefined || v === '' || isNaN(n)) return ''
