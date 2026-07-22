@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { uploadFile, deleteFile } from '@/lib/upload'
 import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
 import {
-  Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon, User as UserIcon,
+  Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
+  CheckSquare, CheckCircle2, Ban,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -15,9 +17,14 @@ export interface BLabel { id: string; name: string; color: string }
 export interface BList { id: string; title: string; position: number }
 export interface BCard {
   id: string; list_id: string; title: string; description?: string | null
-  due_date?: string | null; position: number; members: string[]; labels: string[]
+  due_date?: string | null; completed?: boolean; position: number; members: string[]; labels: string[]
 }
 interface Activity { id: string; user_id: string | null; kind: string; text: string; created_at: string }
+
+/** estado de uma tarefa: aberta, concluída ou cancelada (ambas somem da ficha do cliente) */
+export type CardState = 'open' | 'done' | 'canceled'
+export interface ChecklistItem { id: string; text: string; done: boolean }
+export interface Checklist { title: string; items: ChecklistItem[] }
 
 // paleta oficial (10 cores Notion)
 const LABEL_COLORS = ['#94A3B8', '#9B9A97', '#A27763', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444']
@@ -141,8 +148,16 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                           {card.labels.map(lid => { const l = label(lid); return l ? <span key={lid} className="h-2 w-9 rounded-full" style={{ background: l.color }} title={l.name} /> : null })}
                         </div>
                       )}
-                      <p className="text-sm leading-snug mb-1.5" style={{ color: 'var(--notion-text)' }}>{card.title}</p>
+                      <p className="text-sm leading-snug mb-1.5"
+                        style={{ color: card.completed ? 'var(--notion-text-3)' : 'var(--notion-text)', textDecoration: card.completed ? 'line-through' : 'none' }}>
+                        {card.title}
+                      </p>
                       <div className="flex items-center gap-2 flex-wrap">
+                        {card.completed && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#34D399' }}>
+                            <CheckCircle2 className="w-3 h-3" /> Fechada
+                          </span>
+                        )}
                         {card.due_date && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
                             style={{ background: overdue ? 'rgba(239,68,68,0.18)' : 'var(--notion-bg-4)', color: overdue ? '#F87171' : 'var(--notion-text-2)' }}>
@@ -231,6 +246,18 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   // anexos e clientes vinculados são guardados em board_activity (kinds 'attachment' e 'contact')
   const safeParse = (t: string): Record<string, string> => { try { const v = JSON.parse(t); return v && typeof v === 'object' ? v : {} } catch { return {} } }
   const attachments = activity.filter(a => a.kind === 'attachment').map(a => { const p = safeParse(a.text); return { act: a, name: p.name, url: p.url, path: p.path } })
+  // checklists ficam em board_activity (kind 'checklist'), um registro por checklist
+  const checklists = activity.filter(a => a.kind === 'checklist').map(a => {
+    let parsed: Checklist = { title: 'Checklist', items: [] }
+    try {
+      const v = JSON.parse(a.text)
+      if (v && typeof v === 'object') parsed = { title: String(v.title || 'Checklist'), items: Array.isArray(v.items) ? v.items : [] }
+    } catch { /* registro corrompido — mostra vazio */ }
+    return { act: a, ...parsed }
+  }).reverse() // mais antigos primeiro
+  const state: CardState = card.completed
+    ? ((activity.find(a => a.kind === 'status')?.text as CardState) || 'done')
+    : 'open'
   const linkedContacts = (() => {
     const seen = new Set<string>(); const out: { actId: string; contactId: string; name: string }[] = []
     for (const a of activity) {
@@ -319,16 +346,43 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
     refreshActivity()
   }
 
+  /** conclui/cancela/reabre a tarefa — fechada, ela some da ficha do cliente */
+  async function setCardState(next: CardState) {
+    const completed = next !== 'open'
+    patchCard(card.id, { completed })
+    await supabase.from('board_cards').update({ completed }).eq('id', card.id)
+    await supabase.from('board_activity').delete().eq('card_id', card.id).eq('kind', 'status')
+    if (completed) await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'status', text: next })
+    await log(card.id, 'event', next === 'done' ? 'concluiu a tarefa' : next === 'canceled' ? 'cancelou a tarefa' : 'reabriu a tarefa')
+    refreshActivity()
+  }
+
+  // ---------- checklists ----------
+  async function saveChecklist(actId: string, cl: Checklist) {
+    setActivity(as => as.map(a => a.id === actId ? { ...a, text: JSON.stringify(cl) } : a))
+    await supabase.from('board_activity').update({ text: JSON.stringify(cl) }).eq('id', actId)
+  }
+  async function addChecklist() {
+    const cl: Checklist = { title: 'Checklist', items: [] }
+    await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'checklist', text: JSON.stringify(cl) })
+    refreshActivity()
+  }
+  async function removeChecklist(actId: string) {
+    if (!confirm('Excluir esta checklist?')) return
+    setActivity(as => as.filter(a => a.id !== actId))
+    await supabase.from('board_activity').delete().eq('id', actId)
+  }
+
   async function uploadFiles(files: FileList | null) {
     if (!files || !files.length) return
     setUploading(true)
     for (const file of Array.from(files)) {
-      const safe = file.name.replace(/[^\w.\-]+/g, '_')
-      const path = `board/${card.id}/${Date.now()}-${safe}`
-      const { error } = await supabase.storage.from('assets').upload(path, file, { upsert: true })
-      if (error) { alert(`Falha ao enviar "${file.name}": ${error.message}`); continue }
-      const { data } = supabase.storage.from('assets').getPublicUrl(path)
-      await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'attachment', text: JSON.stringify({ name: file.name, url: data.publicUrl, path }) })
+      try {
+        const up = await uploadFile(file, `board/${card.id}`)
+        await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'attachment', text: JSON.stringify({ name: file.name, url: up.url, path: up.path }) })
+      } catch (e) {
+        alert(`Falha ao enviar "${file.name}": ${(e as Error).message}`)
+      }
     }
     setUploading(false); setPop('none'); refreshActivity()
   }
@@ -343,7 +397,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   async function removeAttachment(a: Activity) {
     if (!confirm('Remover este anexo?')) return
     const p = safeParse(a.text)
-    if (p?.path) { try { await supabase.storage.from('assets').remove([p.path]) } catch { /* noop */ } }
+    if (p?.path) { try { await deleteFile(p.path) } catch { /* noop */ } }
     await supabase.from('board_activity').delete().eq('id', a.id)
     refreshActivity()
   }
@@ -372,6 +426,24 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
             {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
           </select>
           <div className="flex items-center gap-1">
+            {state === 'open' ? (
+              <>
+                <button onClick={() => setCardState('done')} className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#34D399' }}>
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Concluir
+                </button>
+                <button onClick={() => setCardState('canceled')} className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
+                  <Ban className="w-3.5 h-3.5" /> Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium"
+                  style={{ background: state === 'done' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: state === 'done' ? '#34D399' : '#F87171' }}>
+                  {state === 'done' ? <><CheckCircle2 className="w-3.5 h-3.5" /> Concluída</> : <><Ban className="w-3.5 h-3.5" /> Cancelada</>}
+                </span>
+                <button onClick={() => setCardState('open')} className="px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Reabrir</button>
+              </>
+            )}
             <button onClick={deleteCard} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-4 h-4" /></button>
             <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>
@@ -395,6 +467,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
               <button onClick={() => setPop(pop === 'labels' ? 'none' : 'labels')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><TagIcon className="w-3.5 h-3.5" /> Etiquetas</button>
               <button onClick={() => setPop(pop === 'contacts' ? 'none' : 'contacts')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Users className="w-3.5 h-3.5" /> Cliente</button>
               <button onClick={() => setPop(pop === 'attach' ? 'none' : 'attach')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Paperclip className="w-3.5 h-3.5" /> Anexo</button>
+              <button onClick={addChecklist} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><CheckSquare className="w-3.5 h-3.5" /> Checklist</button>
             </div>
 
             {/* clientes vinculados */}
@@ -443,6 +516,12 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                 </div>
               )}
             </div>
+
+            {/* checklists */}
+            {checklists.map(cl => (
+              <ChecklistBlock key={cl.act.id} title={cl.title} items={cl.items}
+                onSave={next => saveChecklist(cl.act.id, next)} onDelete={() => removeChecklist(cl.act.id)} />
+            ))}
 
             {/* anexos */}
             <div>
@@ -559,6 +638,77 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
           </Popover>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Checklist dentro do cartão: o usuário escreve um item e ele vira caixa de seleção.
+ * O bloco todo é salvo como um JSON em board_activity (kind 'checklist').
+ */
+function ChecklistBlock({ title, items, onSave, onDelete }: {
+  title: string; items: ChecklistItem[]; onSave: (cl: Checklist) => void; onDelete: () => void
+}) {
+  const [novo, setNovo] = useState('')
+  const [adding, setAdding] = useState(false)
+  const done = items.filter(i => i.done).length
+  const pct = items.length ? Math.round((done / items.length) * 100) : 0
+
+  const addItem = () => {
+    const text = novo.trim(); if (!text) { setAdding(false); return }
+    onSave({ title, items: [...items, { id: crypto.randomUUID(), text, done: false }] })
+    setNovo('')
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <CheckSquare className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+        <input defaultValue={title} onBlur={e => { const t = e.target.value.trim() || 'Checklist'; if (t !== title) onSave({ title: t, items }) }}
+          className="flex-1 bg-transparent text-sm font-medium outline-none" style={{ color: 'var(--notion-text)' }} />
+        <button onClick={onDelete} className="px-2 py-1 rounded text-xs hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>Excluir</button>
+      </div>
+
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[11px] font-mono w-8 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }}>{pct}%</span>
+        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--notion-bg-4)' }}>
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? '#34D399' : 'var(--notion-accent)' }} />
+        </div>
+      </div>
+
+      <div className="space-y-0.5">
+        {items.map(item => (
+          <div key={item.id} className="group/item flex items-start gap-2 px-2 py-1.5 rounded-md hover:bg-[var(--notion-bg-3)]">
+            <button onClick={() => onSave({ title, items: items.map(i => i.id === item.id ? { ...i, done: !i.done } : i) })}
+              className="w-4 h-4 mt-0.5 rounded flex items-center justify-center flex-shrink-0"
+              style={{ background: item.done ? 'var(--notion-accent)' : 'transparent', border: item.done ? 'none' : '1.5px solid var(--notion-border)' }}>
+              {item.done && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+            </button>
+            <input defaultValue={item.text}
+              onBlur={e => { const t = e.target.value.trim(); if (t && t !== item.text) onSave({ title, items: items.map(i => i.id === item.id ? { ...i, text: t } : i) }) }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              className="flex-1 bg-transparent text-sm outline-none"
+              style={{ color: item.done ? 'var(--notion-text-3)' : 'var(--notion-text)', textDecoration: item.done ? 'line-through' : 'none' }} />
+            <button onClick={() => onSave({ title, items: items.filter(i => i.id !== item.id) })}
+              className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded flex-shrink-0" style={{ color: 'var(--notion-text-3)' }}>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {adding ? (
+        <input autoFocus value={novo} onChange={e => setNovo(e.target.value)}
+          onBlur={addItem}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } if (e.key === 'Escape') { setNovo(''); setAdding(false) } }}
+          placeholder="Adicionar um item..."
+          className="w-full mt-1 px-2 py-1.5 rounded-md text-sm outline-none"
+          style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-accent)' }} />
+      ) : (
+        <button onClick={() => setAdding(true)} className="mt-1 flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
+          <Plus className="w-3.5 h-3.5" /> Adicionar um item
+        </button>
+      )}
     </div>
   )
 }

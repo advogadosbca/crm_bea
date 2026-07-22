@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { SlidersHorizontal, Check, User, KeyRound, Building2, Camera, Copy, Plus, Trash2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
+import { uploadFile } from '@/lib/upload'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { Field, Input } from '@/components/ui/primitives'
@@ -69,12 +70,11 @@ function PerfilTab({ profile }: { profile: Profile }) {
   async function pickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
     setUploading(true)
-    const ext = file.name.split('.').pop()
-    const path = `${profile.id}/avatar-${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('assets').upload(path, file, { upsert: true })
-    if (!error) {
-      const { data } = supabase.storage.from('assets').getPublicUrl(path)
-      setAvatar(data.publicUrl)
+    try {
+      const up = await uploadFile(file, `${profile.id}/avatar`)
+      setAvatar(up.url)
+    } catch (e) {
+      alert('Erro no upload: ' + (e as Error).message)
     }
     setUploading(false)
   }

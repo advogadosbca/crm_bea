@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ChevronLeft, ImagePlus, Loader2, LucideIcon } from 'lucide-react'
 import { BackHome } from './BackHome'
 import { createClient } from '@/lib/supabase'
+import { uploadFile } from '@/lib/upload'
 import { useRouter } from 'next/navigation'
 
 export interface HeaderAssets {
@@ -46,13 +47,13 @@ export function EditableHeader({
 
   async function upload(file: File, kind: 'banner' | 'logo') {
     setUploading(kind)
-    const ext = file.name.split('.').pop() || 'png'
-    const path = `${workspaceId}/${kind}-${pageKey}-${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('assets').upload(path, file, { upsert: true })
-    if (error) { setUploading(null); alert('Erro no upload: ' + error.message); return }
-    const { data } = supabase.storage.from('assets').getPublicUrl(path)
+    try {
+      const up = await uploadFile(file, `${workspaceId}/${kind}-${pageKey}`)
+      setPending({ kind, url: up.url })
+    } catch (e) {
+      alert('Erro no upload: ' + (e as Error).message)
+    }
     setUploading(null)
-    setPending({ kind, url: data.publicUrl })
   }
 
   async function applyScope(scope: 'page' | 'all') {

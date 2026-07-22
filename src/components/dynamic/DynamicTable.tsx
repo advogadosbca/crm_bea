@@ -6,10 +6,10 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
   DBColumn, DBRow, ColumnType, SelectOption, DataSource, RollupFn, COLUMN_TYPES, AUTO_TYPES, OPTION_COLORS,
-  convertValue, formatNumber,
+  convertValue, formatNumber, isColumnHidden,
 } from '@/types/dynamic'
 import {
-  FilterCond, SortCond, ColorRule, matchesFilters, applySort, rowColor,
+  FilterCond, SortCond, ColorRule, QuickFilter, matchesFilters, matchesQuick, applySort, rowColor,
 } from '@/lib/view-config'
 import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
@@ -27,10 +27,18 @@ type Calc = 'none' | 'count' | 'filled' | 'sum' | 'avg' | 'checked'
 let undoOwner: string | null = null
 
 export function DynamicTable({ tableId, initialColumns, initialRows, sources: initialSources = [], members, userId,
-  viewFilters, viewSort, viewGroupColId, viewColorRules, viewSearch }: {
+  viewFilters, viewSort, viewGroupColId, viewColorRules, viewSearch, viewQuick, viewId, onColumnsChange, onRowsChange }: {
   tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources?: DataSource[]; members: Member[]; userId: string
   // configuração de view opcional (Filtrar/Ordenar/Agrupar/Cor condicional). Ausente = comportamento padrão.
   viewFilters?: FilterCond[]; viewSort?: SortCond | null; viewGroupColId?: string | null; viewColorRules?: ColorRule[]; viewSearch?: string
+  /** filtros rápidos por etiqueta (barra de chips do container) */
+  viewQuick?: QuickFilter
+  /** visualização ativa: ocultar coluna passa a valer só nela (config.hiddenInViews) */
+  viewId?: string
+  /** avisa o container quando as colunas mudam (mantém o painel de visibilidade em sincronia) */
+  onColumnsChange?: (cols: DBColumn[]) => void
+  /** avisa o container quando as linhas mudam (o container também cria/apaga registros) */
+  onRowsChange?: (rows: DBRow[]) => void
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -49,6 +57,12 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   // fontes em estado local para que edições no painel reflitam na grade (chips/rollups)
   const [sources, setSources] = useState<DataSource[]>(initialSources)
   useEffect(() => { setSources(initialSources) }, [initialSources])
+  // o container (DynamicBoard) também mexe nas colunas — ex.: visibilidade por visualização
+  useEffect(() => { setColumns(initialColumns) }, [initialColumns])
+  useEffect(() => { setRows(initialRows) }, [initialRows])
+  // troca de colunas/linhas feita aqui dentro precisa subir para o container
+  const publishColumns = (cols: DBColumn[]) => { setColumns(cols); onColumnsChange?.(cols) }
+  const publishRows = (rs: DBRow[]) => { setRows(rs); onRowsChange?.(rs) }
   // a tabela ativa se enxerga como fonte com dados "ao vivo" (colunas/linhas do estado local);
   // as demais fontes vêm do estado `sources` (editáveis pelo painel)
   const liveSources = useMemo(
@@ -75,7 +89,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     )
   }
 
-  const visible = columns.filter(c => !c.hidden).sort((a, b) => a.position - b.position)
+  const visible = columns.filter(c => !isColumnHidden(c, viewId)).sort((a, b) => a.position - b.position)
   // coluna "título" (onde aparece o botão Open), mesmo critério do primaryValue
   const primaryColId = (visible.find(c => ['text', 'select', 'status', 'email', 'phone', 'url'].includes(c.type)) || visible[0])?.id
   const typeMeta = (t: ColumnType) => COLUMN_TYPES.find(x => x.type === t)
@@ -84,6 +98,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   const displayRows = useMemo(() => {
     let rs = rows
     if (viewFilters && viewFilters.length) rs = rs.filter(r => matchesFilters(r, columns, viewFilters))
+    if (viewQuick) rs = rs.filter(r => matchesQuick(r, columns, viewQuick))
     if (viewSearch && viewSearch.trim()) {
       const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
       const needle = nrm(viewSearch)
@@ -99,7 +114,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     }
     const s: SortCond | null = (viewSort ?? null) || (sort ? { colId: sort.col, dir: sort.dir } : null)
     return applySort(rs, columns, s)
-  }, [rows, viewFilters, viewSearch, viewSort, sort, columns])
+  }, [rows, viewFilters, viewQuick, viewSearch, viewSort, sort, columns])
 
   // agrupamento opcional (Agrupar por): monta seções ordenadas pela opção da coluna
   const groupCol = viewGroupColId ? columns.find(c => c.id === viewGroupColId) : null
@@ -197,23 +212,23 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     const position = rows.length
     const { data } = await supabase.from('db_rows').insert({ table_id: tableId, data: {}, position, created_by: userId, updated_by: userId }).select('*').single()
     if (data) {
-      setRows(rs => [...rs, data as DBRow])
+      publishRows([...rows, data as DBRow])
       pushUndo('adicionar linha', async () => {
-        setRows(rs => rs.filter(r => r.id !== data.id))
+        publishRows(rowsRef.current.filter(r => r.id !== data.id))
         await supabase.from('db_rows').delete().eq('id', data.id)
       })
     }
   }
   async function deleteRow(id: string) {
     const row = rows.find(r => r.id === id)
-    setRows(rs => rs.filter(r => r.id !== id))
+    publishRows(rows.filter(r => r.id !== id))
     await supabase.from('db_rows').delete().eq('id', id)
     if (row) pushUndo('excluir linha', async () => {
       const { data } = await supabase.from('db_rows').insert({
         id: row.id, table_id: row.table_id, data: row.data, position: row.position,
         created_by: row.created_by ?? userId, updated_by: row.updated_by ?? userId,
       }).select('*').single()
-      if (data) setRows(rs => [...rs, data as DBRow])
+      if (data) publishRows([...rowsRef.current, data as DBRow])
     })
   }
   async function addColumn(type: ColumnType, atPosition: number) {
@@ -226,34 +241,58 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     if (data) {
       await Promise.all(shifted.filter(c => c.position !== columns.find(o => o.id === c.id)?.position).map(c =>
         supabase.from('db_columns').update({ position: c.position }).eq('id', c.id)))
-      setColumns([...shifted, data as DBColumn])
+      publishColumns([...shifted, data as DBColumn])
       pushUndo('adicionar coluna', async () => {
-        setColumns(cs => cs.filter(c => c.id !== data.id))
+        publishColumns(columns.filter(c => c.id !== data.id))
         await supabase.from('db_columns').delete().eq('id', data.id)
       })
     }
   }
   async function renameColumn(colId: string, name: string) {
     const oldName = columns.find(c => c.id === colId)?.name
-    setColumns(cs => cs.map(c => c.id === colId ? { ...c, name } : c))
+    publishColumns(columns.map(c => c.id === colId ? { ...c, name } : c))
     setRenaming(null)
     await supabase.from('db_columns').update({ name }).eq('id', colId)
     if (oldName !== undefined && oldName !== name) pushUndo('renomear coluna', async () => {
-      setColumns(cs => cs.map(c => c.id === colId ? { ...c, name: oldName } : c))
+      publishColumns(columns.map(c => c.id === colId ? { ...c, name: oldName } : c))
       await supabase.from('db_columns').update({ name: oldName }).eq('id', colId)
     })
   }
   async function hideColumn(colId: string) {
-    setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden: true } : c)); setMenuCol(null)
+    const col = columns.find(c => c.id === colId); if (!col) return
+    setMenuCol(null)
+    // dentro de uma visualização, ocultar vale só nela; fora, oculta em todas
+    if (viewId) {
+      const before = col.config.hiddenInViews || []
+      const config = { ...col.config, hiddenInViews: [...before, viewId] }
+      publishColumns(columns.map(c => c.id === colId ? { ...c, config } : c))
+      await supabase.from('db_columns').update({ config }).eq('id', colId)
+      pushUndo('ocultar coluna', async () => {
+        const back = { ...col.config, hiddenInViews: before }
+        publishColumns(columns.map(c => c.id === colId ? { ...c, config: back } : c))
+        await supabase.from('db_columns').update({ config: back }).eq('id', colId)
+      })
+      return
+    }
+    publishColumns(columns.map(c => c.id === colId ? { ...c, hidden: true } : c))
     await supabase.from('db_columns').update({ hidden: true }).eq('id', colId)
     pushUndo('ocultar coluna', async () => {
-      setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden: false } : c))
+      publishColumns(columns.map(c => c.id === colId ? { ...c, hidden: false } : c))
       await supabase.from('db_columns').update({ hidden: false }).eq('id', colId)
     })
   }
   async function unhideAll() {
-    setColumns(cs => cs.map(c => ({ ...c, hidden: false })))
-    await Promise.all(columns.filter(c => c.hidden).map(c => supabase.from('db_columns').update({ hidden: false }).eq('id', c.id)))
+    const affected = columns.filter(c => isColumnHidden(c, viewId))
+    const next = columns.map(c => {
+      if (!isColumnHidden(c, viewId)) return c
+      const config = viewId ? { ...c.config, hiddenInViews: (c.config.hiddenInViews || []).filter(v => v !== viewId) } : c.config
+      return { ...c, hidden: false, config }
+    })
+    publishColumns(next)
+    await Promise.all(affected.map(c => {
+      const n = next.find(x => x.id === c.id)!
+      return supabase.from('db_columns').update({ hidden: false, config: n.config }).eq('id', c.id)
+    }))
   }
   async function duplicateColumn(col: DBColumn) {
     setMenuCol(null)
@@ -276,7 +315,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     if (!confirm('Excluir esta coluna e todos os seus valores?')) return
     setMenuCol(null)
     const col = columns.find(c => c.id === colId)
-    setColumns(cs => cs.filter(c => c.id !== colId))
+    publishColumns(columns.filter(c => c.id !== colId))
     await supabase.from('db_columns').delete().eq('id', colId)
     // os valores em db_rows.data[colId] não são apagados, então voltam junto com a coluna
     if (col) pushUndo('excluir coluna', async () => {
@@ -303,7 +342,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     // snapshot p/ desfazer: tipo, config e valor antigo de cada linha
     const oldType = col.type, oldConfig = col.config
     const oldValues = rows.map(r => ({ id: r.id, v: r.data[col.id] }))
-    setColumns(cs => cs.map(c => c.id === col.id ? { ...c, type: to, config } : c))
+    publishColumns(columns.map(c => c.id === col.id ? { ...c, type: to, config } : c))
     setRows(rs => rs.map(r => { const c = converted.find(x => x.id === r.id); return c ? { ...r, data: c.data } : r }))
     await supabase.from('db_columns').update({ type: to, config }).eq('id', col.id)
     await Promise.all(converted.map(c => supabase.from('db_rows').update({ data: c.data }).eq('id', c.id)))
@@ -333,7 +372,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     return ''
   }
 
-  const hiddenCount = columns.filter(c => c.hidden).length
+  const hiddenCount = columns.filter(c => isColumnHidden(c, viewId)).length
 
   // linha da tabela (reutilizada no modo plano e no agrupado); aplica cor condicional como barra à esquerda
   const renderRow = (row: DBRow) => {

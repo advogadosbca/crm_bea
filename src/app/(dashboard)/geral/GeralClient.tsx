@@ -126,12 +126,9 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
     if (editId) {
       await supabase.from('contacts').update({ ...payload, updated_by: userId }).eq('id', editId)
     } else {
-      const { data: inserted, error: insertError } = await supabase.from('contacts').insert({
+      await supabase.from('contacts').insert({
         workspace_id: workspaceId, created_by: userId, updated_by: userId, ...payload,
-      }).select('id, funil_status, status_geral').single()
-      // #region agent log
-      fetch('http://127.0.0.1:7920/ingest/c40992e2-4100-442c-aa31-e3c6a18f7d13',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'429952'},body:JSON.stringify({sessionId:'429952',location:'GeralClient.tsx:handleSave',message:'contact insert result',data:{insertOk:!insertError,insertError:insertError?.message??null,insertedId:inserted?.id??null,funil_status:form.funil_status||null},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
+      })
     }
     setSaving(false); setShowForm(false); setEditId(null)
     setForm(emptyForm())

@@ -24,6 +24,8 @@ export interface ColumnConfig {
   targetColId?: string
   /** rollup: função de agregação */
   rollupFn?: RollupFn
+  /** ids das visualizações (db_views) em que esta coluna fica oculta */
+  hiddenInViews?: string[]
 }
 
 export interface DBColumn {
@@ -57,6 +59,15 @@ export interface DBTable {
 }
 
 export interface DataSource { id: string; name: string; columns: DBColumn[]; rows: DBRow[] }
+
+/**
+ * Coluna oculta? `hidden` esconde em todas as visualizações; `config.hiddenInViews`
+ * esconde só nas visualizações listadas (cada view escolhe o que mostrar).
+ */
+export function isColumnHidden(col: DBColumn, viewId?: string): boolean {
+  if (col.hidden) return true
+  return !!viewId && !!col.config.hiddenInViews?.includes(viewId)
+}
 
 /** valor exibível "primário" de uma linha (primeira coluna de texto/título). */
 export function primaryValue(row: DBRow, columns: DBColumn[]): string {

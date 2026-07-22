@@ -78,6 +78,37 @@ export function matchesFilters(row: DBRow, columns: DBColumn[], filters: FilterC
   return filters.every(f => matchCond(row, columns.find(c => c.id === f.colId), f.op, f.value))
 }
 
+/**
+ * Filtros rápidos das etiquetas: colId → valores marcados.
+ * Dentro da mesma propriedade vale OU (Cível ou Trabalhista);
+ * entre propriedades vale E (Área E Mensalista).
+ */
+export type QuickFilter = Record<string, string[]>
+
+export function matchesQuick(row: DBRow, columns: DBColumn[], quick?: QuickFilter): boolean {
+  if (!quick) return true
+  for (const [colId, picked] of Object.entries(quick)) {
+    if (!picked.length) continue
+    const col = columns.find(c => c.id === colId)
+    if (!col) continue
+    const raw = row.data[colId]
+    const arr = Array.isArray(raw) ? raw : (raw == null || raw === '' ? [] : [raw])
+    // a linha pode guardar o id da opção ou o rótulo — aceita os dois
+    const have = new Set<string>()
+    for (const v of arr) {
+      have.add(String(v))
+      const o = (col.config.options || []).find(x => x.id === v || x.label === v)
+      if (o) { have.add(o.id); have.add(o.label) }
+    }
+    if (picked.includes('__empty__') && arr.length === 0) continue
+    if (!picked.some(p => have.has(p))) return false
+  }
+  return true
+}
+
+export const quickCount = (quick?: QuickFilter) =>
+  quick ? Object.values(quick).reduce((n, v) => n + v.length, 0) : 0
+
 export function applySort(rows: DBRow[], columns: DBColumn[], sort: SortCond | null): DBRow[] {
   if (!sort) return [...rows].sort((a, b) => a.position - b.position)
   const col = columns.find(c => c.id === sort.colId)

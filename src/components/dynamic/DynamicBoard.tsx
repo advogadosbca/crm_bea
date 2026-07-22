@@ -3,14 +3,15 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, OPTION_COLORS } from '@/types/dynamic'
+import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, OPTION_COLORS, isColumnHidden } from '@/types/dynamic'
 import {
-  ViewConfig, FilterCond, ColorRule, FILTER_OPS,
-  matchesFilters, applySort, rowColor, loadViewConfig, saveViewConfig,
+  ViewConfig, FilterCond, ColorRule, QuickFilter, FILTER_OPS,
+  matchesFilters, matchesQuick, quickCount, applySort, rowColor, loadViewConfig, saveViewConfig,
 } from '@/lib/view-config'
 import { DynamicTable } from './DynamicTable'
 import { Cell } from './Cell'
 import { RecordPanel as RelationRecordPanel } from './RecordPanel'
+import { RecordTasks } from '@/components/board/RecordTasks'
 import { TypeIcon } from './TypePicker'
 import { COLUMN_TYPES } from '@/types/dynamic'
 import {
@@ -48,6 +49,117 @@ function SettingsRow({ icon: Icon, label, value, onClick, arrow, soon }: {
   )
 }
 
+/**
+ * Lista de propriedades com olho de ligar/desligar. A escolha vale só na
+ * visualização informada — cada quadro/tabela mostra o que quiser.
+ */
+function PropertyVisibility({ cols, viewId, viewName, onToggle }: {
+  cols: DBColumn[]; viewId?: string; viewName?: string; onToggle: (colId: string) => void
+}) {
+  if (cols.length === 0) return <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhuma propriedade.</p>
+  return (
+    <>
+      <p className="text-[10px] uppercase tracking-wider px-2 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>
+        {viewName ? `Exibidas em "${viewName}"` : 'Propriedades exibidas'}
+      </p>
+      {cols.map(c => {
+        const off = isColumnHidden(c, viewId)
+        return (
+          <button key={c.id} onClick={() => onToggle(c.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: off ? 'var(--notion-text-3)' : 'var(--notion-text)' }}>
+            <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+            <span className="flex-1 text-left truncate">{c.name}</span>
+            {off ? <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} /> : <Eye className="w-3.5 h-3.5" style={{ color: 'var(--notion-accent)' }} />}
+          </button>
+        )
+      })}
+    </>
+  )
+}
+
+/**
+ * Barra de filtros rápidos: um botão por propriedade de etiqueta (Área, Mensalista,
+ * Tribunal...). Marcar várias opções da MESMA propriedade soma (ou); propriedades
+ * diferentes se cruzam (e). Ex.: Área=Cível + Mensalista=Laura Marise.
+ */
+function QuickFilterBar({ columns, quick, onChange, total, shown }: {
+  columns: DBColumn[]; quick: QuickFilter; onChange: (q: QuickFilter) => void; total: number; shown: number
+}) {
+  const [open, setOpen] = useState<string | null>(null)
+  const tagCols = columns.filter(c => ['select', 'status', 'multi_select'].includes(c.type) && (c.config.options || []).length > 0)
+  const active = quickCount(quick)
+  if (!tagCols.length) return null
+
+  const toggle = (colId: string, optId: string) => {
+    const cur = quick[colId] || []
+    const next = cur.includes(optId) ? cur.filter(v => v !== optId) : [...cur, optId]
+    const q = { ...quick, [colId]: next }
+    if (!next.length) delete q[colId]
+    onChange(q)
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap mb-3">
+      <Filter className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+      {tagCols.map(col => {
+        const picked = quick[col.id] || []
+        const opts = col.config.options || []
+        return (
+          <div key={col.id} className="relative">
+            <button onClick={() => setOpen(o => o === col.id ? null : col.id)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors"
+              style={{
+                background: picked.length ? 'var(--notion-bg-4)' : 'var(--notion-bg-2)',
+                color: picked.length ? 'var(--notion-text)' : 'var(--notion-text-2)',
+                border: `1px solid ${picked.length ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
+              }}>
+              {col.name}
+              {picked.length > 0 && (
+                <span className="px-1 rounded text-[10px] font-semibold" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{picked.length}</span>
+              )}
+              <ChevronRight className="w-3 h-3 rotate-90" style={{ color: 'var(--notion-text-3)' }} />
+            </button>
+            {open === col.id && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setOpen(null)} />
+                <div className="absolute left-0 top-8 z-50 w-56 rounded-lg p-1 shadow-2xl max-h-72 overflow-y-auto"
+                  style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                  {opts.map(o => {
+                    const on = picked.includes(o.id)
+                    return (
+                      <button key={o.id} onClick={() => toggle(col.id, o.id)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]">
+                        <span className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
+                          style={{ background: on ? 'var(--notion-accent)' : 'transparent', border: on ? 'none' : '1.5px solid var(--notion-border)' }}>
+                          {on && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded truncate" style={{ background: `${o.color}22`, color: o.color }}>{o.label}</span>
+                      </button>
+                    )
+                  })}
+                  {picked.length > 0 && (
+                    <button onClick={() => { const q = { ...quick }; delete q[col.id]; onChange(q); setOpen(null) }}
+                      className="w-full text-left px-2 py-1.5 mt-1 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}>
+                      Limpar {col.name}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })}
+      {active > 0 && (
+        <>
+          <button onClick={() => onChange({})} className="flex items-center gap-1 px-2 py-1 rounded-md text-xs hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
+            <X className="w-3 h-3" /> Limpar filtros
+          </button>
+          <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>{shown} de {total}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface Member { id: string; full_name: string }
 interface RowComment { id: string; user_id: string | null; text: string; created_at: string }
 export interface DBView { id: string; name: string; type: string; position: number }
@@ -82,7 +194,10 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const [addingView, setAddingView] = useState(false)
   const [renamingView, setRenamingView] = useState<string | null>(null)
   const [exibirSub, setExibirSub] = useState(false)
+  const [visSub, setVisSub] = useState(false)
   const [q, setQ] = useState('')
+  // filtros rápidos por etiqueta (Área, Mensalista, Tribunal...) — valem enquanto a tela está aberta
+  const [quick, setQuick] = useState<QuickFilter>({})
   const [cfgOpen, setCfgOpen] = useState(false)
   const [cfgTab, setCfgTab] = useState<'menu' | 'layout' | 'visibility' | 'filter' | 'sort' | 'group' | 'color'>('menu')
   const [copied, setCopied] = useState(false)
@@ -136,12 +251,13 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const groupCol = (effGroupColId ? ordered.find(c => c.id === effGroupColId) : null) || ordered.find(c => c.type === 'status') || ordered.find(c => c.type === 'select')
   const titleCol = ordered.find(c => c.type === 'text') || ordered[0]
   const peopleCol = ordered.find(c => c.type === 'people')
-  const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !['files'].includes(c.type) && !c.hidden)
+  const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !['files'].includes(c.type) && !isColumnHidden(c, activeId))
   const opt = (col: DBColumn, v: unknown) => (col.config.options || []).find(o => o.id === v || o.label === v)
 
   // pipeline das views não-tabela: filtros (Filtrar) → busca (lupa) → ordenação (Ordenar)
   const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
-  const filteredRows = vcfg.filters.length ? rows.filter(r => matchesFilters(r, columns, vcfg.filters)) : rows
+  const baseRows = vcfg.filters.length ? rows.filter(r => matchesFilters(r, columns, vcfg.filters)) : rows
+  const filteredRows = quickCount(quick) ? baseRows.filter(r => matchesQuick(r, columns, quick)) : baseRows
   const searchedRows = q.trim() ? filteredRows.filter(r => {
     const needle = nrm(q)
     return ordered.some(c => {
@@ -158,12 +274,26 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   // cor condicional aplicada aos cards (board/galeria/lista)
   const cardColor = (r: DBRow) => vcfg.colorRules.length ? rowColor(r, columns, vcfg.colorRules) : null
 
-  // visibilidade das propriedades no card (usa o campo hidden da coluna)
+  // visibilidade das propriedades — vale só na visualização ativa (config.hiddenInViews).
+  // Sem visualização (tabela avulsa), cai no campo `hidden`, que oculta em todas.
   async function toggleColHidden(colId: string) {
     const col = columns.find(c => c.id === colId); if (!col) return
-    const hidden = !col.hidden
-    setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden } : c))
-    await supabase.from('db_columns').update({ hidden }).eq('id', colId)
+    const vid = activeView?.id
+    if (!vid) {
+      const hidden = !col.hidden
+      setColumns(cs => cs.map(c => c.id === colId ? { ...c, hidden } : c))
+      await supabase.from('db_columns').update({ hidden }).eq('id', colId)
+      return
+    }
+    const list = col.config.hiddenInViews || []
+    // coluna escondida em todas: converte para "escondida em todas menos nesta",
+    // senão ligá-la aqui a faria reaparecer nas outras visualizações
+    const hiddenInViews = col.hidden
+      ? views.filter(v => v.id !== vid).map(v => v.id)
+      : list.includes(vid) ? list.filter(v => v !== vid) : [...list, vid]
+    const config = { ...col.config, hiddenInViews }
+    setColumns(cs => cs.map(c => c.id === colId ? { ...c, config, hidden: false } : c))
+    await supabase.from('db_columns').update({ config, hidden: false }).eq('id', colId)
   }
   const member = (id: string) => members.find(m => m.id === id)
 
@@ -184,6 +314,20 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
     await updateCell(rowId, groupCol.id, optValue)
     setDragId(null); setOverCol(null)
   }
+  /** cria um registro já no topo e abre a ficha para preencher (botão "Novo" da barra) */
+  async function addRowTop() {
+    const data: Record<string, unknown> = {}
+    if (vt === 'board' && groupCol) {
+      const first = (groupCol.config.options || [])[0]
+      if (first) data[groupCol.id] = first.id
+    }
+    const minPos = rows.reduce((m, r) => Math.min(m, r.position), 0)
+    const { data: created } = await supabase.from('db_rows')
+      .insert({ table_id: tableId, data, position: minPos - 1, created_by: userId, updated_by: userId })
+      .select('*').single()
+    if (created) { setRows(rs => [created as DBRow, ...rs]); setOpenRow(created.id) }
+  }
+
   async function addCard(optValue: string) {
     if (!groupCol) return
     const { data } = await supabase.from('db_rows').insert({ table_id: tableId, data: { [groupCol.id]: optValue }, position: rows.length, created_by: userId, updated_by: userId }).select('*').single()
@@ -220,8 +364,8 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingView(null) }}
                   className="px-2 py-1 rounded text-xs w-28 outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-accent)' }} />
               ) : (
-                <button onClick={() => { if (isActive) setViewMenu(viewMenu === v.id ? null : v.id); else setActiveId(v.id) }}
-                  onContextMenu={e => { e.preventDefault(); setActiveId(v.id); setViewMenu(v.id) }}
+                <button onClick={() => { setExibirSub(false); setVisSub(false); if (isActive) setViewMenu(viewMenu === v.id ? null : v.id); else setActiveId(v.id) }}
+                  onContextMenu={e => { e.preventDefault(); setExibirSub(false); setVisSub(false); setActiveId(v.id); setViewMenu(v.id) }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
                   style={{ background: isActive ? 'var(--notion-bg-3)' : 'transparent', color: isActive ? 'var(--notion-text)' : 'var(--notion-text-2)' }}>
                   <Icon className="w-3.5 h-3.5" /> {v.name}
@@ -230,9 +374,14 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
               )}
               {viewMenu === v.id && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => { setViewMenu(null); setExibirSub(false) }} />
-                  <div className="absolute left-0 top-9 z-50 w-52 rounded-lg p-1 shadow-2xl" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
-                    {exibirSub ? (
+                  <div className="fixed inset-0 z-40" onClick={() => { setViewMenu(null); setExibirSub(false); setVisSub(false) }} />
+                  <div className="absolute left-0 top-9 z-50 w-52 rounded-lg p-1 shadow-2xl max-h-[70vh] overflow-y-auto" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                    {visSub ? (
+                      <>
+                        <button onClick={() => setVisSub(false)} className="w-full text-left px-2 py-1 text-xs mb-1" style={{ color: 'var(--notion-text-3)' }}>← Propriedades exibidas</button>
+                        <PropertyVisibility cols={ordered.filter(c => c !== titleCol)} viewId={v.id} viewName={v.name} onToggle={toggleColHidden} />
+                      </>
+                    ) : exibirSub ? (
                       <>
                         <button onClick={() => setExibirSub(false)} className="w-full text-left px-2 py-1 text-xs mb-1" style={{ color: 'var(--notion-text-3)' }}>← Exibir como</button>
                         {VIEW_TYPES.map(t => (
@@ -247,6 +396,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                       <>
                         <MenuItem icon={Pencil} label="Renomear" onClick={() => { setRenamingView(v.id); setViewMenu(null) }} />
                         <MenuItem icon={Repeat} label="Exibir como" onClick={() => setExibirSub(true)} arrow />
+                        <MenuItem icon={Eye} label="Propriedades exibidas" onClick={() => { setActiveId(v.id); setVisSub(true) }} arrow />
                         <MenuItem icon={Copy} label="Duplicar visualização" onClick={() => duplicateView(v)} />
                         <MenuItem icon={Trash2} label="Excluir visualização" onClick={() => deleteView(v.id)} danger />
                       </>
@@ -290,9 +440,14 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
           <button onClick={() => { setCfgOpen(o => !o); setCfgTab('menu') }} title="Configurações da visualização" className="p-1.5 rounded-md hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
             <SlidersHorizontal className="w-4 h-4" />
           </button>
+          <button onClick={addRowTop} title="Criar um registro e abrir a ficha"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-opacity hover:opacity-90"
+            style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+            <Plus className="w-3.5 h-3.5" /> Novo
+          </button>
           {cfgOpen && (() => {
             const sourceName = sources.find(s => s.id === tableId)?.name || activeView?.name || 'Fonte'
-            const visibleCount = ordered.filter(c => !c.hidden).length
+            const visibleCount = ordered.filter(c => !isColumnHidden(c, activeId)).length
             const propList = ordered.filter(c => c !== titleCol)
             const copyLink = async () => {
               try { await navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* noop */ }
@@ -328,15 +483,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                   ) : cfgTab === 'visibility' ? (
                     <>
                       {backBtn('Visibilidade da propriedade')}
-                      <p className="text-[10px] uppercase tracking-wider px-2 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Propriedades exibidas</p>
-                      {propList.map(c => (
-                        <button key={c.id} onClick={() => toggleColHidden(c.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
-                          <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
-                          <span className="flex-1 text-left truncate">{c.name}</span>
-                          {c.hidden ? <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} /> : <Eye className="w-3.5 h-3.5" style={{ color: 'var(--notion-accent)' }} />}
-                        </button>
-                      ))}
-                      {propList.length === 0 && <p className="text-xs px-2 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhuma propriedade.</p>}
+                      <PropertyVisibility cols={propList} viewId={activeId} viewName={activeView?.name} onToggle={toggleColHidden} />
                     </>
                   ) : cfgTab === 'sort' ? (
                     <>
@@ -452,8 +599,11 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
         </div>
       </div>
 
+      <QuickFilterBar columns={ordered.filter(c => !isColumnHidden(c, activeId))} quick={quick} onChange={setQuick} total={rows.length} shown={shown.length} />
+
       {vt === 'table' ? (
         <DynamicTable key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId}
+          viewId={activeId} onColumnsChange={setColumns} onRowsChange={setRows} viewQuick={quick}
           viewFilters={vcfg.filters} viewSort={vcfg.sort} viewGroupColId={vcfg.groupColId} viewColorRules={vcfg.colorRules} viewSearch={q} />
       ) : vt === 'gallery' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -623,6 +773,8 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
               )
             })}
           </div>
+
+          <RecordTasks rowId={row.id} />
 
           {/* Comentários */}
           <div className="mt-8 pt-5 border-t" style={{ borderColor: 'var(--notion-border)' }}>

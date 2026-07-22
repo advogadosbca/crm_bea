@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { createClient } from '@/lib/supabase'
+import { uploadFile } from '@/lib/upload'
 import { DBColumn, DBRow, DataSource, SelectOption, formatNumber, primaryValue, displayValue, OPTION_COLORS } from '@/types/dynamic'
-import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
 
@@ -286,17 +286,8 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
           )) : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
         </div>
         {open && (
-          <Dropdown pos={pos} width={240} onClose={() => setOpen(false)}>
-            <p className="text-[10px] uppercase tracking-wider px-1 pb-1" style={{ color: 'var(--notion-text-3)' }}>{source.name}</p>
-            <div className="space-y-0.5">
-              {source.rows.length === 0 && <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Fonte sem registros.</p>}
-              {source.rows.map(r => (
-                <button key={r.id} onClick={() => toggle(r.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
-                  <span className="truncate flex-1 text-left">{primaryValue(r, source.columns)}</span>
-                  {selected.includes(r.id) && <Check className="w-3 h-3" style={{ color: 'var(--notion-text-2)' }} />}
-                </button>
-              ))}
-            </div>
+          <Dropdown pos={pos} width={280} onClose={() => setOpen(false)}>
+            <RelationPicker source={source} selected={selected} onToggle={toggle} />
           </Dropdown>
         )}
       </div>
@@ -340,8 +331,70 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
   return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }}>—</div>
 }
 
+/**
+ * Seletor de registro relacionado com busca (lupa). A fonte pode ter centenas de
+ * linhas — sem filtrar não dá para achar o cliente. Mostra os já escolhidos no topo.
+ */
+function RelationPicker({ source, selected, onToggle }: {
+  source: DataSource; selected: string[]; onToggle: (id: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+  // texto de busca de cada linha: título + demais campos de texto (telefone, CPF, processo...)
+  const searchText = (r: DBRow) => nrm([
+    primaryValue(r, source.columns),
+    ...source.columns.filter(c => ['text', 'phone', 'email', 'url', 'number'].includes(c.type)).map(c => String(r.data[c.id] ?? '')),
+  ].join(' '))
+
+  const needle = nrm(q.trim())
+  const matched = needle ? source.rows.filter(r => searchText(r).includes(needle)) : source.rows
+  const ordered = [
+    ...matched.filter(r => selected.includes(r.id)),
+    ...matched.filter(r => !selected.includes(r.id)),
+  ]
+  const list = ordered.slice(0, 80)
+
+  const subtitle = (r: DBRow) => {
+    const c = source.columns.find(x => ['phone', 'email'].includes(x.type))
+    const v = c ? String(r.data[c.id] ?? '') : ''
+    return v || ''
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-1.5 px-2 py-1.5 mb-1.5 rounded-md" style={{ background: 'var(--notion-bg-4)' }}>
+        <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={`Buscar em ${source.name}...`}
+          className="bg-transparent text-xs outline-none flex-1 min-w-0" style={{ color: 'var(--notion-text)' }} />
+        {q && <button onClick={() => setQ('')} style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>}
+      </div>
+      <div className="space-y-0.5">
+        {source.rows.length === 0 && <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Fonte sem registros.</p>}
+        {source.rows.length > 0 && list.length === 0 && <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Nada encontrado para “{q}”.</p>}
+        {list.map(r => {
+          const sub = subtitle(r)
+          return (
+            <button key={r.id} onClick={() => onToggle(r.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+              <span className="flex-1 min-w-0 text-left">
+                <span className="block truncate">{primaryValue(r, source.columns)}</span>
+                {sub && <span className="block truncate text-[10px]" style={{ color: 'var(--notion-text-3)' }}>{sub}</span>}
+              </span>
+              {selected.includes(r.id) && <Check className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-text-2)' }} />}
+            </button>
+          )
+        })}
+        {matched.length > list.length && (
+          <p className="text-[10px] px-1 py-1.5" style={{ color: 'var(--notion-text-3)' }}>
+            +{matched.length - list.length} registros — refine a busca.
+          </p>
+        )}
+      </div>
+    </>
+  )
+}
+
 function FilesCell({ value, cellBase, onChange, readOnly = false }: { value: unknown; cellBase: string; onChange: (v: unknown) => void; readOnly?: boolean }) {
-  const supabase = createClient()
   const files: string[] = Array.isArray(value) ? value as string[] : []
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -357,13 +410,12 @@ function FilesCell({ value, cellBase, onChange, readOnly = false }: { value: unk
   }
   async function upload(file: File) {
     setUploading(true)
-    const ext = file.name.split('.').pop() || 'bin'
-    const path = `arquivos/${crypto.randomUUID()}.${ext}`
-    const { error } = await supabase.storage.from('assets').upload(path, file, { upsert: true })
-    if (!error) {
-      const { data } = supabase.storage.from('assets').getPublicUrl(path)
-      onChange([...files, data.publicUrl])
-    } else alert('Erro no upload: ' + error.message)
+    try {
+      const up = await uploadFile(file, 'arquivos')
+      onChange([...files, up.url])
+    } catch (e) {
+      alert('Erro no upload: ' + (e as Error).message)
+    }
     setUploading(false)
   }
   const nameOf = (url: string) => { try { return decodeURIComponent(url.split('/').pop() || 'arquivo').replace(/^[0-9a-f-]+\./, 'arquivo.') } catch { return 'arquivo' } }

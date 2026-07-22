@@ -7,7 +7,7 @@ export default async function GeralPage() {
   const workspaceId = profile?.workspace_id
   const assets = await getPageAssets('geral')
 
-  const [{ data: contacts, error: contactsError }, { data: members }, { data: kanbanCols }, { data: boardLists }, { data: boardLabels }, { data: boardCardsRaw }] = await Promise.all([
+  const [{ data: contacts }, { data: members }, { data: kanbanCols }, { data: boardLists }, { data: boardLabels }, { data: boardCardsRaw }] = await Promise.all([
     supabase
       .from('contacts')
       .select('*, responsavel:profiles!contacts_responsavel_id_fkey(full_name, avatar_url)')
@@ -24,7 +24,7 @@ export default async function GeralPage() {
       .order('position', { ascending: true }),
     supabase.from('board_lists').select('id, title, position').eq('workspace_id', workspaceId || '').order('position'),
     supabase.from('board_labels').select('id, name, color').eq('workspace_id', workspaceId || ''),
-    supabase.from('board_cards').select('id, list_id, title, description, due_date, position, board_card_members(profile_id), board_card_labels(label_id)').eq('workspace_id', workspaceId || '').order('position'),
+    supabase.from('board_cards').select('id, list_id, title, description, due_date, completed, position, board_card_members(profile_id), board_card_labels(label_id)').eq('workspace_id', workspaceId || '').order('position'),
   ])
 
   // tabelas dinâmicas do Geral (Alerta / Prazos) + fontes
@@ -61,15 +61,12 @@ export default async function GeralPage() {
   const cols = kanbanCols || []
   const byBoard = (k: string) => cols.filter(c => c.board_key === k).map(({ id, label, color, position }) => ({ id, label, color, position }))
 
-  const boardCards = (boardCardsRaw || []).map((c: { id: string; list_id: string; title: string; description?: string; due_date?: string; position: number; board_card_members?: { profile_id: string }[]; board_card_labels?: { label_id: string }[] }) => ({
-    id: c.id, list_id: c.list_id, title: c.title, description: c.description, due_date: c.due_date, position: c.position,
+  const boardCards = (boardCardsRaw || []).map((c: { id: string; list_id: string; title: string; description?: string; due_date?: string; completed?: boolean; position: number; board_card_members?: { profile_id: string }[]; board_card_labels?: { label_id: string }[] }) => ({
+    id: c.id, list_id: c.list_id, title: c.title, description: c.description, due_date: c.due_date,
+    completed: !!c.completed, position: c.position,
     members: (c.board_card_members || []).map(m => m.profile_id),
     labels: (c.board_card_labels || []).map(l => l.label_id),
   }))
-
-  // #region agent log
-  fetch('http://127.0.0.1:7920/ingest/c40992e2-4100-442c-aa31-e3c6a18f7d13',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'429952'},body:JSON.stringify({sessionId:'429952',location:'geral/page.tsx:load',message:'contacts query result',data:{contactsCount:contacts?.length??0,contactsError:contactsError?.message??null,contactsErrorCode:contactsError?.code??null,workspaceId:workspaceId??null,kanbanFunilCols:byBoard('funil').length},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
 
   return (
     <GeralClient

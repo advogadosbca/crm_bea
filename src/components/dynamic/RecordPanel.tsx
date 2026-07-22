@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { DataSource, DBRow, SelectOption, COLUMN_TYPES, primaryValue } from '@/types/dynamic'
 import { Cell } from './Cell'
 import { TypeIcon } from './TypePicker'
+import { RecordTasks } from '@/components/board/RecordTasks'
 import { X, ChevronLeft } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -89,7 +90,7 @@ export function RecordPanel({ record, sources, members, onClose, onSaveField, on
               </h2>
             </div>
 
-            {/* campos */}
+            {/* campos + tarefas vinculadas */}
             <div className="flex-1 overflow-y-auto px-3 pb-10">
               {cols.map(col => (
                 <div key={col.id} className="flex items-start gap-2 py-px">
@@ -113,6 +114,7 @@ export function RecordPanel({ record, sources, members, onClose, onSaveField, on
                   </div>
                 </div>
               ))}
+              <RecordTasks rowId={row.id} />
             </div>
           </>
         )}
