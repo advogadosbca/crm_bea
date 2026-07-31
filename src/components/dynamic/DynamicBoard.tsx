@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { initials, personColor } from '@/lib/people'
 import {
   DBColumn, DBRow, DataSource, SelectOption, formatNumber, OPTION_COLORS, isColumnHidden,
   relationRows, relationLabel, rollupText,
@@ -14,14 +15,15 @@ import {
 import { DynamicTable } from './DynamicTable'
 import { Cell } from './Cell'
 import { RecordPanel as RelationRecordPanel } from './RecordPanel'
+import { RecordComments } from './RecordComments'
 import { RecordTasks } from '@/components/board/RecordTasks'
 import { TypeIcon } from './TypePicker'
 import { COLUMN_TYPES } from '@/types/dynamic'
 import {
-  LayoutGrid, Table2, Plus, X, MessageSquare, List as ListIcon, Image as ImageIcon, Calendar as CalIcon,
+  LayoutGrid, Table2, Plus, X, List as ListIcon, Image as ImageIcon, Calendar as CalIcon,
   BarChart3, LayoutDashboard, GanttChart, Rss, Map as MapIcon, MoreHorizontal, Pencil, Copy, Trash2, Repeat, Check,
   Search, SlidersHorizontal, Eye, EyeOff, ArrowUpRight, Paperclip,
-  ChevronRight, Filter, ArrowUpDown, Layers, Palette, Link2, Database,
+  ChevronRight, Filter, ArrowUpDown, Layers, Palette, Link2, Database, Lock,
 } from 'lucide-react'
 
 function MenuItem({ icon: Icon, label, onClick, danger, arrow }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean }) {
@@ -71,6 +73,7 @@ function PropertyVisibility({ cols, viewId, viewName, onToggle }: {
           <button key={c.id} onClick={() => onToggle(c.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: off ? 'var(--notion-text-3)' : 'var(--notion-text)' }}>
             <TypeIcon icon={c.config.icon || COLUMN_TYPES.find(t => t.type === c.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
             <span className="flex-1 text-left truncate">{c.name}</span>
+            {c.config.adminOnly && <Lock className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-accent)' }} aria-label="Somente admins" />}
             {off ? <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} /> : <Eye className="w-3.5 h-3.5" style={{ color: 'var(--notion-accent)' }} />}
           </button>
         )
@@ -164,7 +167,6 @@ function QuickFilterBar({ columns, quick, onChange, total, shown }: {
 }
 
 interface Member { id: string; full_name: string }
-interface RowComment { id: string; user_id: string | null; text: string; created_at: string }
 export interface DBView { id: string; name: string; type: string; position: number }
 
 const VIEW_TYPES: { type: string; label: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; available: boolean }[] = [
@@ -268,6 +270,8 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
     return ordered.some(c => {
       const v = r.data[c.id]
       if (v == null || v === '') return false
+      // rollup guarda um objeto de escolha, não texto
+      if (typeof v === 'object' && !Array.isArray(v)) return false
       if (['select', 'status', 'multi_select'].includes(c.type)) {
         const opts = c.config.options || []
         return (Array.isArray(v) ? v : [v]).some(id => { const o = opts.find(x => x.id === id || x.label === id); return o && nrm(o.label).includes(needle) })
@@ -699,11 +703,13 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                       </div>
                       {peopleCol && Array.isArray(r.data[peopleCol.id]) && (r.data[peopleCol.id] as string[]).length > 0 && (
                         <div className="flex flex-col gap-1 mt-2">
-                          {(r.data[peopleCol.id] as string[]).map(id => { const m = member(id); return m ? (
+                          {(r.data[peopleCol.id] as string[]).map(id => { const m = member(id); if (!m) return null
+                            const cor = personColor(m.id)
+                            return (
                             <span key={id} className="inline-flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--notion-text-2)' }}>
-                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m.full_name[0]}</span>{m.full_name}
+                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: `${cor}33`, color: cor, border: `1px solid ${cor}66` }}>{initials(m.full_name)}</span>{m.full_name}
                             </span>
-                          ) : null })}
+                          ) })}
                         </div>
                       )}
                     </div>
@@ -738,26 +744,11 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
 }) {
   const supabase = createClient()
   const router = useRouter()
-  const [comments, setComments] = useState<RowComment[]>([])
-  const [text, setText] = useState('')
   const [nested, setNested] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const titleCol = [...columns].sort((a, b) => a.position - b.position).find(c => c.type === 'text') || columns[0]
   const fieldCols = columns.filter(c => c !== titleCol).sort((a, b) => a.position - b.position)
-  const member = (id: string) => members.find(m => m.id === id)
   const typeMeta = (t: string) => COLUMN_TYPES.find(x => x.type === t)
 
-  useEffect(() => {
-    supabase.from('db_row_comments').select('*').eq('row_id', row.id).order('created_at', { ascending: false })
-      .then(({ data }) => setComments((data || []) as RowComment[]))
-  }, [row.id, supabase])
-
-  async function addComment() {
-    if (!text.trim()) return
-    await supabase.from('db_row_comments').insert({ row_id: row.id, user_id: userId, text: text.trim() })
-    setText('')
-    const { data } = await supabase.from('db_row_comments').select('*').eq('row_id', row.id).order('created_at', { ascending: false })
-    setComments((data || []) as RowComment[])
-  }
   async function del() {
     if (!confirm('Excluir este registro?')) return
     await supabase.from('db_rows').delete().eq('id', row.id); onDeleted(); router.refresh()
@@ -814,29 +805,10 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
           </div>
 
           <RecordTasks rowId={row.id} />
+          <RecordComments rowId={row.id} userId={userId} members={members} />
 
-          {/* Comentários */}
-          <div className="mt-8 pt-5 border-t" style={{ borderColor: 'var(--notion-border)' }}>
-            <h3 className="text-sm font-medium flex items-center gap-1.5 mb-3" style={{ color: 'var(--notion-text)' }}><MessageSquare className="w-4 h-4" /> Comentários</h3>
-            <div className="flex gap-2 mb-4">
-              <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment() }} placeholder="Adicionar um comentário..."
-                className="flex-1 px-3 py-2 rounded-lg text-sm outline-none" style={{ background: 'var(--notion-bg-2)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }} />
-              <button onClick={addComment} className="px-3 rounded-lg text-sm" style={{ background: 'var(--notion-accent)', color: '#fff' }}>Enviar</button>
-            </div>
-            <div className="space-y-3">
-              {comments.map(c => { const m = member(c.user_id || '') ; return (
-                <div key={c.id} className="flex gap-2">
-                  <span className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m?.full_name?.[0] || '?'}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs"><span className="font-medium" style={{ color: 'var(--notion-text)' }}>{m?.full_name || 'Usuário'}</span> <span style={{ color: 'var(--notion-text-3)' }}>{new Date(c.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span></p>
-                    <p className="text-sm mt-0.5" style={{ color: 'var(--notion-text-2)' }}>{c.text}</p>
-                  </div>
-                </div>
-              )})}
-            </div>
-          </div>
           {nested && (
-            <RelationRecordPanel record={nested} sources={sources} members={members}
+            <RelationRecordPanel record={nested} sources={sources} members={members} userId={userId}
               onClose={() => setNested(null)} onSaveField={saveNestedField} onUpdateOptions={saveNestedOptions} />
           )}
         </div>

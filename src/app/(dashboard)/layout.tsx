@@ -1,5 +1,6 @@
 import { getAuthProfile } from '@/lib/auth'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { RoleProvider } from '@/components/layout/RoleProvider'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -13,11 +14,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar workspaceName={workspaceName} />
-      <main className="flex-1 ml-56 min-h-screen overflow-auto">
-        {children}
-      </main>
-    </div>
+    <RoleProvider role={profile?.role || 'colaborador'}>
+      <div className="flex min-h-screen">
+        <Sidebar workspaceName={workspaceName} />
+        <main className="flex-1 ml-56 min-h-screen overflow-auto">
+          {children}
+        </main>
+      </div>
+    </RoleProvider>
   )
 }

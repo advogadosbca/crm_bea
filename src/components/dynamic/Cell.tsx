@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { uploadFile } from '@/lib/upload'
+import { initials, personColor } from '@/lib/people'
 import {
-  DBColumn, DBRow, DataSource, SelectOption, formatNumber, primaryValue, OPTION_COLORS,
-  relationLabel, rollupText,
+  DBColumn, DBRow, DataSource, SelectOption, RollupItem, formatNumber, primaryValue, OPTION_COLORS,
+  relationLabel, rollupText, rollupItems, rollupShown, rollupPick, makeRollupPick,
 } from '@/types/dynamic'
-import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search } from 'lucide-react'
+import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search, ListChecks } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
 
@@ -43,6 +44,18 @@ interface Props {
   readOnly?: boolean
   /** abrir o painel de detalhe de um registro relacionado (chip de relação clicável) */
   onOpenRecord?: (source: DataSource, row: DBRow) => void
+}
+
+/** avatar de pessoa: duas iniciais + cor fixa por id (evita confundir homônimos) */
+function Avatar({ id, name, size = 20 }: { id: string; name: string; size?: number }) {
+  const c = personColor(id)
+  return (
+    <span className="rounded-full flex items-center justify-center font-semibold flex-shrink-0"
+      title={name}
+      style={{ width: size, height: size, fontSize: size <= 20 ? 9 : 10, background: `${c}33`, color: c, border: `1px solid ${c}66` }}>
+      {initials(name)}
+    </span>
+  )
 }
 
 function Chip({ opt, onRemove }: { opt: SelectOption; onRemove?: () => void }) {
@@ -162,14 +175,14 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     return (
       <div className="relative w-full">
         <div className={cellBase} style={txt} onClick={e => { if (!readOnly) openAt(e, 192) }}>
-          {m ? <span className="inline-flex items-center gap-1.5 text-xs"><span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m.full_name[0]}</span>{m.full_name}</span> : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
+          {m ? <span className="inline-flex items-center gap-1.5 text-xs"><Avatar id={m.id} name={m.full_name} />{m.full_name}</span> : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
         </div>
         {open && (
           <Dropdown pos={pos} width={192} onClose={() => setOpen(false)}>
             <button onClick={() => { onChange(null); setOpen(false) }} className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}>— Ninguém —</button>
             {members.map(mm => (
               <button key={mm.id} onClick={() => { onChange(mm.id); setOpen(false) }} className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] flex items-center gap-1.5" style={{ color: 'var(--notion-text)' }}>
-                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{mm.full_name[0]}</span>{mm.full_name}
+                <Avatar id={mm.id} name={mm.full_name} />{mm.full_name}
               </button>
             ))}
           </Dropdown>
@@ -188,7 +201,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
         <div className={cellBase + ' gap-1 flex-wrap'} onClick={e => { if (!readOnly) openAt(e, 200) }}>
           {sel.length ? sel.map(m => (
             <span key={m.id} className="inline-flex items-center gap-1 text-xs">
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m.full_name[0]}</span>
+              <Avatar id={m.id} name={m.full_name} />
               {m.full_name}
             </span>
           )) : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
@@ -197,7 +210,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
           <Dropdown pos={pos} width={200} onClose={() => setOpen(false)}>
             {members.map(mm => (
               <button key={mm.id} onClick={() => toggle(mm.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
-                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{mm.full_name[0]}</span>
+                <Avatar id={mm.id} name={mm.full_name} />
                 <span className="flex-1 text-left truncate">{mm.full_name}</span>
                 {ids.includes(mm.id) && <Check className="w-3 h-3" />}
               </button>
@@ -289,13 +302,16 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     )
   }
 
-  // ---- rollup (read-only, calculado) ----
+  // ---- rollup (calculado a partir da tabela relacionada) ----
   if (type === 'rollup') {
     const relCol = tableColumns.find(c => c.id === config.relationColId)
     const source = sources.find(s => s.id === relCol?.config.sourceTableId)
     const targetCol = source?.columns.find(c => c.id === config.targetColId)
     if (!relCol || !source || !targetCol || !row) return <div className={cellBase} style={{ color: 'var(--notion-text-3)' }} title="Configure o rollup no menu da coluna">—</div>
-    return <div className={cellBase + ' font-mono text-xs'} style={{ color: 'var(--notion-text-2)' }}>{rollupText(column, row, tableColumns, sources)}</div>
+    return (
+      <RollupCell column={column} row={row} tableColumns={tableColumns} sources={sources}
+        cellBase={cellBase} readOnly={readOnly} onChange={onChange} />
+    )
   }
 
   // ---- auto (read-only) ----
@@ -313,6 +329,102 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
 }
 
 /**
+ * Célula de rollup. Quando o registro relacionado traz MAIS DE UM valor
+ * (ex.: um cliente com vários processos), a célula abre um menu para escolher
+ * quais valores ficam à mostra — a escolha é gravada na própria linha.
+ * Rollups com cálculo (soma, contagem…) continuam só de leitura.
+ */
+function RollupCell({ column, row, tableColumns, sources, cellBase, readOnly, onChange }: {
+  column: DBColumn; row: DBRow; tableColumns: DBColumn[]; sources: DataSource[]
+  cellBase: string; readOnly: boolean; onChange: (v: unknown) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const fn = column.config.rollupFn || 'concat'
+  const all = useMemo(
+    () => (fn === 'concat' ? rollupItems(column, row, tableColumns, sources) : []),
+    [column, row, tableColumns, sources, fn],
+  )
+  const shown = useMemo(
+    () => (fn === 'concat' ? rollupShown(column, row, tableColumns, sources) : []),
+    [column, row, tableColumns, sources, fn],
+  )
+
+  if (fn !== 'concat') {
+    return <div className={cellBase + ' font-mono text-xs'} style={{ color: 'var(--notion-text-2)' }}>{rollupText(column, row, tableColumns, sources)}</div>
+  }
+
+  const picked = rollupPick(row.data[column.id])
+  const escolhivel = !readOnly && all.length > 1
+  const marcado = (k: string) => (picked ? picked.includes(k) : true)
+
+  function toggle(key: string) {
+    const base = picked ?? all.map(i => i.key)
+    const next = base.includes(key) ? base.filter(k => k !== key) : [...base, key]
+    // desmarcar tudo volta ao padrão (mostrar todos)
+    onChange(next.length === all.length || next.length === 0 ? null : makeRollupPick(next))
+  }
+
+  function openAt(e: React.MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const w = 300, vw = window.innerWidth, vh = window.innerHeight
+    setPos({ left: Math.max(8, Math.min(r.left, vw - w - 8)), top: Math.max(8, Math.min(r.bottom + 4, vh - 330)) })
+    setOpen(o => !o)
+  }
+
+  return (
+    <div className="relative w-full">
+      <div className={cellBase + ' gap-1 flex-wrap' + (escolhivel ? '' : ' cursor-default')}
+        title={escolhivel ? 'Clique para escolher quais valores exibir' : undefined}
+        onClick={e => { if (escolhivel) openAt(e) }}>
+        {shown.length === 0 && <span style={{ color: 'var(--notion-text-3)' }}> </span>}
+        {shown.map(i => (
+          <span key={i.key} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] max-w-full"
+            style={i.color
+              ? { background: `${i.color}22`, color: i.color, border: `1px solid ${i.color}33` }
+              : { background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>
+            <span className="truncate">{i.label}</span>
+          </span>
+        ))}
+        {escolhivel && picked && (
+          <span className="text-[10px] px-1 rounded flex-shrink-0" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-3)' }}>
+            {shown.length}/{all.length}
+          </span>
+        )}
+      </div>
+      {open && (
+        <Dropdown pos={pos} width={300} onClose={() => setOpen(false)}>
+          <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-1.5 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>
+            <ListChecks className="w-3 h-3" /> Escolha o que exibir
+          </p>
+          <div className="space-y-0.5">
+            {all.map(i => (
+              <button key={i.key} onClick={() => toggle(i.key)}
+                className="w-full flex items-start gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+                <span className="w-3.5 h-3.5 mt-0.5 rounded flex items-center justify-center flex-shrink-0"
+                  style={{ background: marcado(i.key) ? 'var(--notion-accent)' : 'transparent', border: marcado(i.key) ? 'none' : '1.5px solid var(--notion-border)' }}>
+                  {marcado(i.key) && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                </span>
+                <span className="flex-1 min-w-0 text-left">
+                  <span className="block break-words" style={{ color: i.color || 'var(--notion-text)' }}>{i.label}</span>
+                  {i.sub && <span className="block text-[10px] break-words" style={{ color: 'var(--notion-text-3)' }}>{i.sub}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+          {picked && (
+            <button onClick={() => { onChange(null); setOpen(false) }}
+              className="w-full text-left px-2 py-1.5 mt-1 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}>
+              Mostrar todos
+            </button>
+          )}
+        </Dropdown>
+      )}
+    </div>
+  )
+}
+
+/**
  * Seletor de registro relacionado com busca (lupa). A fonte pode ter centenas de
  * linhas — sem filtrar não dá para achar o cliente. Mostra os já escolhidos no topo.
  */
@@ -320,27 +432,36 @@ function RelationPicker({ source, selected, onToggle }: {
   source: DataSource; selected: string[]; onToggle: (id: string) => void
 }) {
   const [q, setQ] = useState('')
-  const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 
-  // texto de busca de cada linha: título + demais campos de texto (telefone, CPF, processo...)
-  const searchText = (r: DBRow) => nrm([
-    primaryValue(r, source.columns),
-    ...source.columns.filter(c => ['text', 'phone', 'email', 'url', 'number'].includes(c.type)).map(c => String(r.data[c.id] ?? '')),
-  ].join(' '))
+  // Índice de busca montado UMA vez por fonte (era refeito a cada tecla, e com
+  // centenas de registros x dezenas de colunas a digitação travava).
+  const index = useMemo(() => {
+    const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+    const textCols = source.columns.filter(c => ['text', 'phone', 'email', 'url', 'number', 'select', 'status', 'multi_select'].includes(c.type))
+    const subCol = source.columns.find(x => ['phone', 'email'].includes(x.type))
+    return source.rows.map(r => ({
+      row: r,
+      title: primaryValue(r, source.columns),
+      sub: subCol ? String(r.data[subCol.id] ?? '') : '',
+      hay: nrm([
+        primaryValue(r, source.columns),
+        ...textCols.map(c => {
+          const v = r.data[c.id]
+          if (v == null) return ''
+          if (Array.isArray(v)) return v.map(x => (c.config.options || []).find(o => o.id === x)?.label || String(x)).join(' ')
+          return (c.config.options || []).find(o => o.id === v)?.label || String(v)
+        }),
+      ].join(' ')),
+    }))
+  }, [source])
 
-  const needle = nrm(q.trim())
-  const matched = needle ? source.rows.filter(r => searchText(r).includes(needle)) : source.rows
+  const needle = q.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+  const matched = needle ? index.filter(e => e.hay.includes(needle)) : index
   const ordered = [
-    ...matched.filter(r => selected.includes(r.id)),
-    ...matched.filter(r => !selected.includes(r.id)),
+    ...matched.filter(e => selected.includes(e.row.id)),
+    ...matched.filter(e => !selected.includes(e.row.id)),
   ]
   const list = ordered.slice(0, 80)
-
-  const subtitle = (r: DBRow) => {
-    const c = source.columns.find(x => ['phone', 'email'].includes(x.type))
-    const v = c ? String(r.data[c.id] ?? '') : ''
-    return v || ''
-  }
 
   return (
     <>
@@ -353,18 +474,15 @@ function RelationPicker({ source, selected, onToggle }: {
       <div className="space-y-0.5">
         {source.rows.length === 0 && <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Fonte sem registros.</p>}
         {source.rows.length > 0 && list.length === 0 && <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Nada encontrado para “{q}”.</p>}
-        {list.map(r => {
-          const sub = subtitle(r)
-          return (
-            <button key={r.id} onClick={() => onToggle(r.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
-              <span className="flex-1 min-w-0 text-left">
-                <span className="block truncate">{primaryValue(r, source.columns)}</span>
-                {sub && <span className="block truncate text-[10px]" style={{ color: 'var(--notion-text-3)' }}>{sub}</span>}
-              </span>
-              {selected.includes(r.id) && <Check className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-text-2)' }} />}
-            </button>
-          )
-        })}
+        {list.map(e => (
+          <button key={e.row.id} onClick={() => onToggle(e.row.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+            <span className="flex-1 min-w-0 text-left">
+              <span className="block truncate">{e.title}</span>
+              {e.sub && <span className="block truncate text-[10px]" style={{ color: 'var(--notion-text-3)' }}>{e.sub}</span>}
+            </span>
+            {selected.includes(e.row.id) && <Check className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-text-2)' }} />}
+          </button>
+        ))}
         {matched.length > list.length && (
           <p className="text-[10px] px-1 py-1.5" style={{ color: 'var(--notion-text-3)' }}>
             +{matched.length - list.length} registros — refine a busca.

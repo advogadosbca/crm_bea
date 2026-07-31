@@ -26,6 +26,19 @@ export interface ColumnConfig {
   rollupFn?: RollupFn
   /** ids das visualizações (db_views) em que esta coluna fica oculta */
   hiddenInViews?: string[]
+  /** coluna reservada: só admin/super_admin recebe e enxerga (ex.: contrato de honorários) */
+  adminOnly?: boolean
+}
+
+/** admins e super_admins enxergam colunas marcadas como `adminOnly` */
+export const isAdminRole = (role?: string | null) => ['admin', 'super_admin'].includes(String(role || ''))
+
+/**
+ * Remove do payload as colunas restritas quando quem pediu não é admin.
+ * Usada no servidor, antes de mandar as colunas para o cliente.
+ */
+export function filterAdminOnly<T extends { config?: ColumnConfig | null }>(cols: T[], isAdmin: boolean): T[] {
+  return isAdmin ? cols : cols.filter(c => !c.config?.adminOnly)
 }
 
 export interface DBColumn {
@@ -143,6 +156,10 @@ export function displayValue(value: unknown, col: DBColumn): string {
           : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')
       } catch { return v }
     }
+    // rollup é calculado a partir de outra tabela (ver rollupText); o valor guardado
+    // na linha é só a escolha do usuário, não um texto exibível
+    case 'rollup':
+      return ''
     default:
       return Array.isArray(value) ? value.join(', ') : String(value)
   }
@@ -167,17 +184,90 @@ export function relationLabel(row: DBRow, source: DataSource, col: DBColumn): st
   return parts.join(' · ') || primaryValue(row, source.columns)
 }
 
-/** valor calculado de um rollup (vazio se a configuração estiver incompleta). */
-export function rollupText(col: DBColumn, row: DBRow, tableColumns: DBColumn[], sources: DataSource[]): string {
+/** um valor individual trazido por um rollup de concatenação */
+export interface RollupItem {
+  /** chave estável usada para marcar/desmarcar o item */
+  key: string
+  label: string
+  color?: string
+  /** informação de apoio (ex.: onde o processo tramita) */
+  sub?: string
+}
+
+/** registros relacionados apontados pela coluna de relação de um rollup */
+function rollupSource(col: DBColumn, row: DBRow, tableColumns: DBColumn[], sources: DataSource[]) {
   const relCol = tableColumns.find(c => c.id === col.config.relationColId)
   const source = sources.find(s => s.id === relCol?.config.sourceTableId)
   const targetCol = source?.columns.find(c => c.id === col.config.targetColId)
-  if (!relCol || !source || !targetCol) return ''
+  if (!relCol || !source || !targetCol) return null
   const ids: string[] = Array.isArray(row.data[relCol.id]) ? row.data[relCol.id] as string[] : []
   const rows = ids.map(id => source.rows.find(r => r.id === id)).filter(Boolean) as DBRow[]
+  return { relCol, source, targetCol, rows }
+}
+
+/**
+ * Todos os valores que o rollup traz, um a um (não concatenados).
+ * Quando a propriedade alvo é seleção (múltipla), cada etiqueta vira um item —
+ * é o que permite escolher, por exemplo, qual processo do cliente exibir.
+ */
+export function rollupItems(col: DBColumn, row: DBRow, tableColumns: DBColumn[], sources: DataSource[]): RollupItem[] {
+  const ctx = rollupSource(col, row, tableColumns, sources)
+  if (!ctx) return []
+  const { targetCol, rows } = ctx
+  const out: RollupItem[] = []
+  const seen = new Set<string>()
+  const push = (item: RollupItem) => { if (!seen.has(item.key)) { seen.add(item.key); out.push(item) } }
+  for (const r of rows) {
+    const v = r.data[targetCol.id]
+    if (v === null || v === undefined || v === '') continue
+    if (['select', 'status', 'multi_select'].includes(targetCol.type)) {
+      const vals = Array.isArray(v) ? v : [v]
+      for (const raw of vals) {
+        const o = (targetCol.config.options || []).find(x => x.id === raw || x.label === raw)
+        if (o) push({ key: o.id, label: o.label, color: o.color, sub: o.group })
+        else push({ key: String(raw), label: String(raw) })
+      }
+    } else {
+      const t = displayValue(v, targetCol)
+      if (t) push({ key: `${r.id}:${t}`, label: t })
+    }
+  }
+  return out
+}
+
+/** escolha do usuário guardada na célula do rollup (null = mostrar tudo) */
+export function rollupPick(value: unknown): string[] | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const p = (value as { picked?: unknown }).picked
+    if (Array.isArray(p)) return p.map(String)
+  }
+  return null
+}
+
+/** valor a gravar na célula do rollup a partir das chaves marcadas */
+export const makeRollupPick = (keys: string[]) => (keys.length ? { picked: keys } : null)
+
+/**
+ * Itens realmente exibidos: os escolhidos pelo usuário ou, se ele não escolheu
+ * (ou a escolha ficou órfã depois de trocar o registro relacionado), todos.
+ */
+export function rollupShown(col: DBColumn, row: DBRow, tableColumns: DBColumn[], sources: DataSource[]): RollupItem[] {
+  const all = rollupItems(col, row, tableColumns, sources)
+  const picked = rollupPick(row.data[col.id])
+  if (!picked) return all
+  const set = new Set(picked)
+  const sel = all.filter(i => set.has(i.key))
+  return sel.length ? sel : all
+}
+
+/** valor calculado de um rollup (vazio se a configuração estiver incompleta). */
+export function rollupText(col: DBColumn, row: DBRow, tableColumns: DBColumn[], sources: DataSource[]): string {
+  const ctx = rollupSource(col, row, tableColumns, sources)
+  if (!ctx) return ''
+  const { targetCol, rows } = ctx
   const fn = col.config.rollupFn || 'concat' // sem cálculo => só puxa/concatena o valor do campo
   if (fn === 'count') return String(rows.length)
-  if (fn === 'concat') return rows.map(r => displayValue(r.data[targetCol.id], targetCol)).filter(Boolean).join(', ')
+  if (fn === 'concat') return rollupShown(col, row, tableColumns, sources).map(i => i.label).join(', ')
   const nums = rows.map(r => Number(r.data[targetCol.id])).filter(n => !isNaN(n))
   const fmt = targetCol.config.format
   if (fn === 'sum') return formatNumber(nums.reduce((a, b) => a + b, 0), fmt)

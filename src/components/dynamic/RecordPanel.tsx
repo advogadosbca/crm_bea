@@ -6,6 +6,7 @@ import { DataSource, DBRow, SelectOption, COLUMN_TYPES, primaryValue } from '@/t
 import { Cell } from './Cell'
 import { TypeIcon } from './TypePicker'
 import { RecordTasks } from '@/components/board/RecordTasks'
+import { RecordComments } from './RecordComments'
 import { X, ChevronLeft } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -16,10 +17,12 @@ interface Member { id: string; full_name: string }
  * reaproveitando a <Cell> em modo somente-leitura. Relações dentro do painel
  * são clicáveis e navegam para o próximo registro (pilha com botão "voltar").
  */
-export function RecordPanel({ record, sources, members, onClose, onSaveField, onUpdateOptions }: {
+export function RecordPanel({ record, sources, members, userId, onClose, onSaveField, onUpdateOptions }: {
   record: { source: DataSource; row: DBRow }
   sources: DataSource[]
   members: Member[]
+  /** autor dos comentários deixados no painel */
+  userId: string
   onClose: () => void
   /** salva um campo do registro relacionado na tabela de origem */
   onSaveField: (sourceId: string, rowId: string, colId: string, value: unknown) => void
@@ -115,6 +118,7 @@ export function RecordPanel({ record, sources, members, onClose, onSaveField, on
                 </div>
               ))}
               <RecordTasks rowId={row.id} />
+              <RecordComments rowId={row.id} userId={userId} members={members} compact />
             </div>
           </>
         )}

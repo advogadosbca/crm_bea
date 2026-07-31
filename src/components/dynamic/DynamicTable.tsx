@@ -14,9 +14,10 @@ import {
 import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
 import { RecordPanel } from './RecordPanel'
+import { useIsAdmin } from '@/components/layout/RoleProvider'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
-  Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2,
+  Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2, Lock,
 } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -42,6 +43,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 }) {
   const supabase = createClient()
   const router = useRouter()
+  const isAdmin = useIsAdmin()
   const [columns, setColumns] = useState<DBColumn[]>(initialColumns)
   const [rows, setRows] = useState<DBRow[]>(initialRows)
   const [menuCol, setMenuCol] = useState<string | null>(null)
@@ -105,6 +107,8 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       rs = rs.filter(r => columns.some(c => {
         const v = c.type === 'created_at' ? r.created_at : c.type === 'updated_at' ? r.updated_at : r.data[c.id]
         if (v == null || v === '') return false
+        // rollup guarda um objeto de escolha, não texto — o valor exibido vem de outra tabela
+        if (typeof v === 'object' && !Array.isArray(v)) return false
         if (['select', 'status', 'multi_select'].includes(c.type)) {
           const opts = c.config.options || []
           return (Array.isArray(v) ? v : [v]).some(id => { const o = opts.find(x => x.id === id || x.label === id); return o && nrm(o.label).includes(needle) })
@@ -443,6 +447,9 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
                       className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-md hover:bg-[var(--notion-bg-2)] transition-colors">
                       <TypeIcon icon={col.config.icon || typeMeta(col.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-2)' }} />
                       <span className="text-[13px] font-normal truncate" style={{ color: 'var(--notion-text-2)' }}>{col.name}</span>
+                      {col.config.adminOnly && (
+                        <Lock className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-accent)' }} aria-label="Somente admins" />
+                      )}
                     </button>
                   )}
                   {menuCol === col.id && (
@@ -460,7 +467,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
                       onUpdateOptions={opts => updateColumnOptions(col.id, opts)}
                       onSetConfig={patch => setColumnConfig(col.id, patch)}
                       sources={liveSources} tableColumns={columns}
-                      isAuto={AUTO_TYPES.includes(col.type)} />
+                      isAuto={AUTO_TYPES.includes(col.type)} isAdmin={isAdmin} />
                   )}
                 </th>
               ))}
@@ -530,7 +537,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       )}
 
       {record && (
-        <RecordPanel record={record} sources={liveSources} members={members}
+        <RecordPanel record={record} sources={liveSources} members={members} userId={userId}
           onClose={() => setRecord(null)}
           onSaveField={saveSourceField}
           onUpdateOptions={saveSourceOptions} />
@@ -540,13 +547,15 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 }
 
 // ---------- Menu de coluna ----------
-function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRename, onChangeType, onSort, onHide, onInsertLeft, onInsertRight, onDuplicate, onDelete, onUpdateOptions, onSetConfig, sources, tableColumns, isAuto }: {
+function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRename, onChangeType, onSort, onHide, onInsertLeft, onInsertRight, onDuplicate, onDelete, onUpdateOptions, onSetConfig, sources, tableColumns, isAuto, isAdmin }: {
   col: DBColumn; typeLabel: string; pos: { left: number; top: number } | null; onClose: () => void; submenu: 'none' | 'type' | 'edit' | 'icon'
   setSubmenu: (s: 'none' | 'type' | 'edit' | 'icon') => void
   onRename: () => void; onChangeType: (t: ColumnType) => void; onSort: (d: 'asc' | 'desc') => void
   onHide: () => void; onInsertLeft: () => void; onInsertRight: () => void; onDuplicate: () => void; onDelete: () => void
   onUpdateOptions: (o: SelectOption[]) => void; onSetConfig: (patch: Record<string, unknown>) => void
   sources: DataSource[]; tableColumns: DBColumn[]; isAuto: boolean
+  /** só admin vê e liga/desliga a restrição "somente admins" */
+  isAdmin: boolean
 }) {
   const Item = ({ icon: Icon, label, onClick, danger, arrow }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean }) => (
     <button onClick={onClick} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: danger ? '#F87171' : 'var(--notion-text)' }}>
@@ -582,6 +591,23 @@ function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRenam
             {hasOptions && <Item icon={Pencil} label="Editar opções" onClick={() => setSubmenu('edit')} arrow />}
             {isRelation && <Item icon={ArrowUpDown} label="Configurar relação" onClick={() => setSubmenu('edit')} arrow />}
             {isRollup && <Item icon={Sigma} label="Configurar rollup" onClick={() => setSubmenu('edit')} arrow />}
+            {isAdmin && (
+              <>
+                <div className="my-1 border-t" style={{ borderColor: 'var(--notion-border)' }} />
+                <button onClick={() => onSetConfig({ adminOnly: !col.config.adminOnly })}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors"
+                  style={{ color: 'var(--notion-text)' }}
+                  title="Quando ligado, a coluna nem é enviada para quem não é admin">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span className="flex-1 text-left">Somente admins</span>
+                  <span className="w-7 h-4 rounded-full flex items-center px-0.5 transition-colors flex-shrink-0"
+                    style={{ background: col.config.adminOnly ? 'var(--notion-accent)' : 'var(--notion-bg-4)' }}>
+                    <span className="w-3 h-3 rounded-full bg-white transition-transform"
+                      style={{ transform: col.config.adminOnly ? 'translateX(12px)' : 'none' }} />
+                  </span>
+                </button>
+              </>
+            )}
             <div className="my-1 border-t" style={{ borderColor: 'var(--notion-border)' }} />
             <Item icon={ArrowUpDown} label="Ordenar crescente" onClick={() => onSort('asc')} />
             <Item icon={ArrowUpDown} label="Ordenar decrescente" onClick={() => onSort('desc')} />

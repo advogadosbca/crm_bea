@@ -39,6 +39,9 @@ yarn-error.log*
 !eslint.config.mjs
 !postcss.config.mjs
 
+# backups gerados pelos scripts de migração (contêm dados de clientes)
+/backup-*.json
+
 # logs
 *.log
 

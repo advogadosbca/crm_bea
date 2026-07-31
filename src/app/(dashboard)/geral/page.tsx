@@ -1,6 +1,6 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { GeralClient } from './GeralClient'
-import { DBColumn, DBRow } from '@/types/dynamic'
+import { DBColumn, DBRow, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 
 export default async function GeralPage() {
   const { supabase, user, profile } = await getAuthProfile()
@@ -37,7 +37,8 @@ export default async function GeralPage() {
       supabase.from('db_columns').select('*').in('table_id', dynIds).order('position'),
       supabase.from('db_rows').select('*').in('table_id', dynIds).order('position').limit(100000),
     ])
-    dynCols = (c || []) as DBColumn[]; dynRows = (r || []) as DBRow[]
+    // colunas "somente admins" ficam fora do payload de quem não é admin
+    dynCols = filterAdminOnly((c || []) as DBColumn[], isAdminRole(profile?.role)); dynRows = (r || []) as DBRow[]
   }
   const dynSources = (dynTables || []).map(t => ({ id: t.id, name: t.name, columns: dynCols.filter(c => c.table_id === t.id), rows: dynRows.filter(r => r.table_id === t.id) }))
   const tableOf = (key: string) => {

@@ -1,5 +1,5 @@
 import { getAuthProfile } from '@/lib/auth'
-import { DBColumn, DBRow, DataSource } from '@/types/dynamic'
+import { DBColumn, DBRow, DataSource, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 
 /**
  * Carrega a tabela dinâmica de um módulo (db_tables.module_key) + colunas/linhas + fontes do workspace.
@@ -12,6 +12,7 @@ export async function getModuleTable(moduleKey: string) {
     .from('db_tables').select('id, name').eq('workspace_id', ws).eq('module_key', moduleKey).maybeSingle()
 
   const tableId = table?.id as string | undefined
+  const isAdmin = isAdminRole(profile?.role)
 
   // fontes (id/nome + colunas — barato). Linhas NÃO de todas as tabelas juntas
   // (o PostgREST corta o total e as abas ficavam incompletas).
@@ -20,7 +21,8 @@ export async function getModuleTable(moduleKey: string) {
   let allCols: DBColumn[] = []
   if (ids.length) {
     const { data: cols } = await supabase.from('db_columns').select('*').in('table_id', ids).order('position')
-    allCols = (cols || []) as DBColumn[]
+    // colunas marcadas como "somente admins" nem chegam ao cliente
+    allCols = filterAdminOnly((cols || []) as DBColumn[], isAdmin)
   }
 
   // carrega linhas só da tabela alvo + fontes referenciadas por colunas de relação
@@ -50,7 +52,7 @@ export async function getModuleTable(moduleKey: string) {
     views = v || []
   }
 
-  return { tableId, columns, rows, sources, members: members || [], userId: user!.id, views }
+  return { tableId, columns, rows, sources, members: members || [], userId: user!.id, views, isAdmin }
 }
 
 /**
@@ -65,7 +67,7 @@ export async function getTableById(tableId: string) {
   let allCols: DBColumn[] = []
   if (ids.length) {
     const { data: cols } = await supabase.from('db_columns').select('*').in('table_id', ids).order('position')
-    allCols = (cols || []) as DBColumn[]
+    allCols = filterAdminOnly((cols || []) as DBColumn[], isAdminRole(profile?.role))
   }
 
   const exists = ids.includes(tableId)
@@ -95,5 +97,5 @@ export async function getTableById(tableId: string) {
     views = v || []
   }
 
-  return { tableId: exists ? tableId : undefined, columns, rows, sources, members: members || [], userId: user!.id, views }
+  return { tableId: exists ? tableId : undefined, columns, rows, sources, members: members || [], userId: user!.id, views, isAdmin: isAdminRole(profile?.role) }
 }

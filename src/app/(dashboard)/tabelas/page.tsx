@@ -1,6 +1,6 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { TabelasClient } from './TabelasClient'
-import { DBColumn, DBRow, DBTable } from '@/types/dynamic'
+import { DBColumn, DBRow, DBTable, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ t?: string }> }) {
   const { supabase, user, profile } = await getAuthProfile()
@@ -33,7 +33,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
       if (data.length < PAGE) break
     }
     const { data: cols } = await supabase.from('db_columns').select('*').in('table_id', ids).order('position')
-    allCols = (cols || []) as DBColumn[]
+    // colunas "somente admins" ficam fora do payload de quem não é admin
+    allCols = filterAdminOnly((cols || []) as DBColumn[], isAdminRole(profile?.role))
   }
 
   const columns = allCols.filter(c => c.table_id === activeId)

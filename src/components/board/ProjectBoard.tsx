@@ -5,11 +5,12 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { uploadFile, deleteFile } from '@/lib/upload'
 import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
+import { initials, personColor } from '@/lib/people'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
-  CheckSquare, CheckCircle2, Ban,
+  CheckSquare, CheckCircle2, Ban, UserX,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -29,6 +30,22 @@ export interface Checklist { title: string; items: ChecklistItem[] }
 // paleta oficial (10 cores Notion)
 const LABEL_COLORS = ['#94A3B8', '#9B9A97', '#A27763', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444']
 
+/** avatar do responsável: duas iniciais + cor fixa (Vitor Canedo "VC" x Vinicius Ferreira "VF") */
+function MemberAvatar({ member, size = 24, ring }: { member: BMember; size?: number; ring?: string }) {
+  const cor = personColor(member.id)
+  return (
+    <span className="rounded-full flex items-center justify-center font-semibold flex-shrink-0"
+      title={member.full_name}
+      style={{
+        width: size, height: size, fontSize: size <= 24 ? 10 : 12,
+        background: cor, color: '#fff',
+        border: ring ? `2px solid ${ring}` : `1px solid ${cor}`,
+      }}>
+      {initials(member.full_name)}
+    </span>
+  )
+}
+
 export function ProjectBoard({ lists: initLists, cards: initCards, labels: initLabels, members, workspaceId, userId }: {
   lists: BList[]; cards: BCard[]; labels: BLabel[]; members: BMember[]; workspaceId: string; userId: string
 }) {
@@ -45,6 +62,8 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const [newList, setNewList] = useState('')
   const [openCard, setOpenCard] = useState<string | null>(null)
   const [listMenu, setListMenu] = useState<string | null>(null)
+  // filtro por responsável: vazio = todos; '__none__' = cartões sem ninguém
+  const [filtro, setFiltro] = useState<string[]>([])
 
   useEffect(() => { setLists(initLists) }, [initLists])
   useEffect(() => { setCards(initCards) }, [initCards])
@@ -106,11 +125,69 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 
   const current = cards.find(c => c.id === openCard) || null
 
+  // pessoas que realmente aparecem em algum cartão (não polui a barra com o time inteiro)
+  const comCartao = members.filter(m => cards.some(c => c.members.includes(m.id)))
+  const temSemResponsavel = cards.some(c => c.members.length === 0)
+  const toggleFiltro = (id: string) => setFiltro(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
+  const visiveis = filtro.length
+    ? cards.filter(c => filtro.some(f => f === '__none__' ? c.members.length === 0 : c.members.includes(f)))
+    : cards
+
   return (
     <div className="rounded-xl p-3" style={{ background: 'rgba(15,42,77,0.25)', border: '1px solid var(--notion-border)' }}>
+      {/* filtro por responsável — ver tudo ou só os prazos de uma pessoa */}
+      {(comCartao.length > 0 || temSemResponsavel) && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-3">
+          <Users className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+          <button onClick={() => setFiltro([])}
+            className="px-2 py-1 rounded-md text-xs transition-colors"
+            style={{
+              background: filtro.length === 0 ? 'var(--notion-bg-4)' : 'transparent',
+              color: filtro.length === 0 ? 'var(--notion-text)' : 'var(--notion-text-2)',
+              border: `1px solid ${filtro.length === 0 ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
+            }}>
+            Todos <span style={{ color: 'var(--notion-text-3)' }}>{cards.length}</span>
+          </button>
+          {comCartao.map(m => {
+            const on = filtro.includes(m.id)
+            const n = cards.filter(c => c.members.includes(m.id)).length
+            return (
+              <button key={m.id} onClick={() => toggleFiltro(m.id)} title={`Só os prazos de ${m.full_name}`}
+                className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md text-xs transition-colors"
+                style={{
+                  background: on ? `${personColor(m.id)}22` : 'transparent',
+                  color: on ? 'var(--notion-text)' : 'var(--notion-text-2)',
+                  border: `1px solid ${on ? personColor(m.id) : 'var(--notion-border)'}`,
+                }}>
+                <MemberAvatar member={m} size={18} />
+                {m.full_name}
+                <span style={{ color: 'var(--notion-text-3)' }}>{n}</span>
+              </button>
+            )
+          })}
+          {temSemResponsavel && (
+            <button onClick={() => toggleFiltro('__none__')}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors"
+              style={{
+                background: filtro.includes('__none__') ? 'var(--notion-bg-4)' : 'transparent',
+                color: filtro.includes('__none__') ? 'var(--notion-text)' : 'var(--notion-text-2)',
+                border: `1px solid ${filtro.includes('__none__') ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
+              }}>
+              <UserX className="w-3 h-3" /> Sem responsável
+              <span style={{ color: 'var(--notion-text-3)' }}>{cards.filter(c => c.members.length === 0).length}</span>
+            </button>
+          )}
+          {filtro.length > 0 && (
+            <button onClick={() => setFiltro([])} className="flex items-center gap-1 px-2 py-1 rounded-md text-xs" style={{ color: 'var(--notion-text-3)' }}>
+              <X className="w-3 h-3" /> limpar ({visiveis.length} de {cards.length})
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-3 overflow-x-auto pb-2 items-start">
         {lists.sort((a, b) => a.position - b.position).map(list => {
-          const listCards = cards.filter(c => c.list_id === list.id).sort((a, b) => a.position - b.position)
+          const listCards = visiveis.filter(c => c.list_id === list.id).sort((a, b) => a.position - b.position)
           return (
             <div key={list.id}
               onDragOver={e => { e.preventDefault(); setOverList(list.id) }}
@@ -167,7 +244,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                         {card.description && <AlignLeft className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} />}
                         <div className="flex -space-x-1.5 ml-auto">
                           {card.members.map(mid => { const m = member(mid); return m ? (
-                            <span key={mid} className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border-2" style={{ background: 'var(--notion-accent)', color: '#fff', borderColor: 'var(--notion-bg-3)' }} title={m.full_name}>{m.full_name[0]}</span>
+                            <MemberAvatar key={mid} member={m} size={24} ring="var(--notion-bg-3)" />
                           ) : null })}
                         </div>
                       </div>
@@ -458,7 +535,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
             {/* membros + etiquetas + prazo (chips) */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex -space-x-1.5">
-                {card.members.map(mid => { const m = member(mid); return m ? <span key={mid} className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold border-2" style={{ background: 'var(--notion-accent)', color: '#fff', borderColor: 'var(--notion-bg-2)' }} title={m.full_name}>{m.full_name[0]}</span> : null })}
+                {card.members.map(mid => { const m = member(mid); return m ? <MemberAvatar key={mid} member={m} size={32} ring="var(--notion-bg-2)" /> : null })}
               </div>
               <button onClick={() => setPop(pop === 'members' ? 'none' : 'members')} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Plus className="w-4 h-4" /></button>
               <div className="flex flex-wrap gap-1.5">
@@ -559,9 +636,9 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
             </div>
             <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
               {history.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem atividades ainda.</p>}
-              {history.map(a => { const m = member(a.user_id || '') ; return (
+              {history.map(a => { const m = member(a.user_id || '') ; const cor = personColor(a.user_id || ''); return (
                 <div key={a.id} className="flex gap-2">
-                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-2)' }}>{m?.full_name?.[0] || '?'}</span>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0" style={{ background: `${cor}33`, color: cor, border: `1px solid ${cor}66` }}>{initials(m?.full_name)}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs" style={{ color: 'var(--notion-text-2)' }}>
                       <span className="font-medium" style={{ color: 'var(--notion-text)' }}>{m?.full_name || 'Usuário'}</span>{' '}
@@ -581,7 +658,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
           <Popover onClose={() => setPop('none')} title="Membros">
             {members.map(m => (
               <button key={m.id} onClick={() => toggleMember(m.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
-                <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{m.full_name[0]}</span>
+                <MemberAvatar member={m} size={24} />
                 <span className="flex-1 text-left truncate">{m.full_name}</span>
                 {card.members.includes(m.id) && <Check className="w-3.5 h-3.5" />}
               </button>
