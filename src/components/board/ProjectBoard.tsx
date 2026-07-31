@@ -26,6 +26,8 @@ interface Activity { id: string; user_id: string | null; kind: string; text: str
 export type CardState = 'open' | 'done' | 'canceled'
 export interface ChecklistItem { id: string; text: string; done: boolean }
 export interface Checklist { title: string; items: ChecklistItem[] }
+/** checklist de outro cartão oferecida como modelo na hora de criar uma nova */
+interface ChecklistModelo { id: string; cartao: string; titulo: string; itens: string[] }
 
 // paleta oficial (10 cores Notion)
 const LABEL_COLORS = ['#94A3B8', '#9B9A97', '#A27763', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444']
@@ -308,7 +310,11 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   const [editDesc, setEditDesc] = useState(false)
   const [activity, setActivity] = useState<Activity[]>([])
   const [comment, setComment] = useState('')
-  const [pop, setPop] = useState<'none' | 'members' | 'labels' | 'due' | 'contacts' | 'attach'>('none')
+  const [pop, setPop] = useState<'none' | 'members' | 'labels' | 'due' | 'contacts' | 'attach' | 'checklist'>('none')
+  // checklists já existentes no quadro, para copiar os itens (igual ao Trello)
+  const [modelos, setModelos] = useState<ChecklistModelo[] | null>(null)
+  const [clTitulo, setClTitulo] = useState('Checklist')
+  const [clCopiarDe, setClCopiarDe] = useState('')
   const [contacts, setContacts] = useState<{ id: string; name: string; phone?: string; source?: string }[] | null>(null)
   const [contactQuery, setContactQuery] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -416,6 +422,33 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
     })()
   }, [pop, contacts, supabase, workspaceId])
 
+  // checklists dos outros cartões (modelos para copiar), carregadas só quando o menu abre
+  useEffect(() => {
+    if (pop !== 'checklist' || modelos !== null) return
+    ;(async () => {
+      const { data: acts } = await supabase.from('board_activity').select('id, card_id, text').eq('kind', 'checklist')
+      const ids = [...new Set((acts || []).map(a => a.card_id as string))]
+      const { data: cds } = ids.length
+        ? await supabase.from('board_cards').select('id, title').in('id', ids)
+        : { data: [] as { id: string; title: string }[] }
+      const tituloDoCartao = new Map((cds || []).map(c => [c.id as string, (c.title as string) || '(sem título)']))
+      const list: ChecklistModelo[] = []
+      for (const a of acts || []) {
+        // cartões de outro workspace não voltam do board_cards (RLS) — ficam de fora
+        const cartao = tituloDoCartao.get(a.card_id as string)
+        if (!cartao) continue
+        try {
+          const v = JSON.parse(a.text as string)
+          const itens = (Array.isArray(v?.items) ? v.items : [])
+            .map((i: { text?: string }) => String(i?.text || '').trim()).filter(Boolean)
+          if (itens.length) list.push({ id: a.id as string, cartao, titulo: String(v?.title || 'Checklist'), itens })
+        } catch { /* registro corrompido — ignora */ }
+      }
+      list.sort((a, b) => a.cartao.localeCompare(b.cartao) || a.titulo.localeCompare(b.titulo))
+      setModelos(list)
+    })()
+  }, [pop, modelos, supabase])
+
   async function toggleContact(cid: string, name: string) {
     const existing = activity.find(a => a.kind === 'contact' && safeParse(a.text)?.contactId === cid)
     if (existing) await supabase.from('board_activity').delete().eq('id', existing.id)
@@ -439,8 +472,16 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
     setActivity(as => as.map(a => a.id === actId ? { ...a, text: JSON.stringify(cl) } : a))
     await supabase.from('board_activity').update({ text: JSON.stringify(cl) }).eq('id', actId)
   }
+  /** cria a checklist, opcionalmente copiando os itens de outra já existente */
   async function addChecklist() {
-    const cl: Checklist = { title: 'Checklist', items: [] }
+    const modelo = modelos?.find(m => m.id === clCopiarDe)
+    const cl: Checklist = {
+      title: clTitulo.trim() || 'Checklist',
+      // itens copiados entram desmarcados — a checklist velha vira modelo, não histórico
+      items: (modelo?.itens || []).map(text => ({ id: crypto.randomUUID(), text, done: false })),
+    }
+    setPop('none'); setClTitulo('Checklist'); setClCopiarDe('')
+    setModelos(null) // a nova checklist também vira modelo na próxima abertura
     await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'checklist', text: JSON.stringify(cl) })
     refreshActivity()
   }
@@ -544,7 +585,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
               <button onClick={() => setPop(pop === 'labels' ? 'none' : 'labels')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><TagIcon className="w-3.5 h-3.5" /> Etiquetas</button>
               <button onClick={() => setPop(pop === 'contacts' ? 'none' : 'contacts')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Users className="w-3.5 h-3.5" /> Cliente</button>
               <button onClick={() => setPop(pop === 'attach' ? 'none' : 'attach')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Paperclip className="w-3.5 h-3.5" /> Anexo</button>
-              <button onClick={addChecklist} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><CheckSquare className="w-3.5 h-3.5" /> Checklist</button>
+              <button onClick={() => setPop(pop === 'checklist' ? 'none' : 'checklist')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><CheckSquare className="w-3.5 h-3.5" /> Checklist</button>
             </div>
 
             {/* clientes vinculados */}
@@ -699,6 +740,50 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                 </div>
               )
             })()}
+          </Popover>
+        )}
+        {pop === 'checklist' && (
+          <Popover title="Adicionar Checklist" onClose={() => setPop('none')}>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--notion-text-2)' }}>Título</label>
+            <input autoFocus value={clTitulo} onChange={e => setClTitulo(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addChecklist() }}
+              className="w-full px-2 py-1.5 mb-3 rounded text-xs outline-none"
+              style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }} />
+
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--notion-text-2)' }}>Copiar itens de...</label>
+            {modelos === null ? (
+              <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Carregando checklists...</p>
+            ) : (
+              <>
+                <select value={clCopiarDe} onChange={e => setClCopiarDe(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded text-xs outline-none"
+                  style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+                  <option value="">(nenhum)</option>
+                  {modelos.map(m => (
+                    <option key={m.id} value={m.id}>{m.cartao} — {m.titulo} ({m.itens.length})</option>
+                  ))}
+                </select>
+                {modelos.length === 0 && (
+                  <p className="text-[11px] mt-1" style={{ color: 'var(--notion-text-3)' }}>
+                    Nenhuma checklist com itens ainda — a primeira que você criar já fica disponível aqui.
+                  </p>
+                )}
+                {clCopiarDe && (
+                  <div className="mt-2 px-2 py-1.5 rounded max-h-28 overflow-y-auto" style={{ background: 'var(--notion-bg-4)' }}>
+                    {modelos.find(m => m.id === clCopiarDe)?.itens.map((t, i) => (
+                      <p key={i} className="text-[11px] truncate" style={{ color: 'var(--notion-text-2)' }}>• {t}</p>
+                    ))}
+                    <p className="text-[10px] mt-1" style={{ color: 'var(--notion-text-3)' }}>Os itens vêm desmarcados.</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            <button onClick={addChecklist}
+              className="w-full mt-3 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium"
+              style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+              <Plus className="w-3.5 h-3.5" /> Adicionar
+            </button>
           </Popover>
         )}
         {pop === 'attach' && (
