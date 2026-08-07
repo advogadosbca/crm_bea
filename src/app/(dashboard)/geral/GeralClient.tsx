@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
+import { ScrollX } from '@/components/ui/ScrollX'
 import { KanbanBoard, KanbanColumn } from '@/components/ui/KanbanBoard'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
@@ -366,7 +367,7 @@ function TableBlock({ title, icon: Icon, accent, rows, today, empty, onNew }: {
         <Icon className="w-4 h-4" style={{ color: accent }} /> {title}
         <span className="text-xs font-normal" style={{ color: 'var(--notion-text-3)' }}>· {rows.length}</span>
       </h2>
-      <div className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
+      <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
@@ -410,7 +411,7 @@ function TableBlock({ title, icon: Icon, accent, rows, today, empty, onNew }: {
             </tfoot>
           )}
         </table>
-      </div>
+      </ScrollX>
       <p className="text-xs mt-2 uppercase tracking-wider" style={{ color: 'var(--notion-text-3)' }}>Contagem {rows.length}</p>
     </section>
   )

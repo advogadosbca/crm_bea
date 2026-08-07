@@ -5,6 +5,7 @@ import { Contact, STATUS_GERAL_COLORS, STATUS_PROCESSUAL_COLORS, RENDA_COLORS } 
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { User as UserIcon, MoreHorizontal, Plus, Check, Trash2, Pencil, Copy } from 'lucide-react'
+import { ScrollX } from '@/components/ui/ScrollX'
 
 type ContactRow = Contact & { responsavel?: { full_name: string; avatar_url?: string } | null }
 
@@ -115,7 +116,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
   const norm = (s: string) => (s || '').normalize('NFC').trim()
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 items-start">
+    <ScrollX className="flex gap-3 overflow-x-auto pb-4 items-start">
       {columns.map(col => {
         const items = local.filter(c => norm(c[field] as string) === norm(col.label))
 
@@ -272,6 +273,6 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
           )}
         </div>
       )}
-    </div>
+    </ScrollX>
   )
 }

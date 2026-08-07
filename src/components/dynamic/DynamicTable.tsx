@@ -15,6 +15,7 @@ import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
 import { RecordPanel } from './RecordPanel'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { ScrollX } from '@/components/ui/ScrollX'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
   Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2, Lock,
@@ -412,7 +413,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 
   return (
     <div onMouseDownCapture={() => { undoOwner = uid.current }}>
-      <div className="overflow-x-auto">
+      <ScrollX className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr>
@@ -516,7 +517,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
             </tr>
           </tfoot>
         </table>
-      </div>
+      </ScrollX>
 
       <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: 'var(--notion-text-3)' }}>
         <span>Contagem {displayRows.length}</span>

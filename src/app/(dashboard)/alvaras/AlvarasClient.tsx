@@ -5,6 +5,7 @@ import { FileText, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
+import { ScrollX } from '@/components/ui/ScrollX'
 import { Toolbar, Modal, ModalActions, Field, Input, Select, Textarea, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
 
 interface Alvara {
@@ -56,7 +57,7 @@ export function AlvarasClient({ headerAssets, alvaras, contacts, workspaceId }: 
         initialBanner={headerAssets.banner} initialLogo={headerAssets.logo} canEdit={headerAssets.canEdit} />
       <div className="px-16 py-6">
         <Toolbar search={search} setSearch={setSearch} onNew={() => setShow(true)} placeholder="Buscar alvará..." />
-        <div className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
+        <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
           <table className="w-full text-sm">
             <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
               {['Número', 'Descrição', 'Cliente', 'Órgão', 'Emissão', 'Vencimento', 'Status'].map(h => (
@@ -85,7 +86,7 @@ export function AlvarasClient({ headerAssets, alvaras, contacts, workspaceId }: 
               </td></tr>
             </tfoot>
           </table>
-        </div>
+        </ScrollX>
         <p className="text-xs mt-3" style={{ color: 'var(--notion-text-3)' }}>{filtered.length} alvará{filtered.length !== 1 ? 's' : ''}</p>
       </div>
 

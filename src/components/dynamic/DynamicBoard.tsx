@@ -17,6 +17,7 @@ import { Cell } from './Cell'
 import { RecordPanel as RelationRecordPanel } from './RecordPanel'
 import { RecordComments } from './RecordComments'
 import { RecordTasks } from '@/components/board/RecordTasks'
+import { ScrollX } from '@/components/ui/ScrollX'
 import { TypeIcon } from './TypePicker'
 import { COLUMN_TYPES } from '@/types/dynamic'
 import {
@@ -674,7 +675,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
         !groupCol ? (
           <p className="text-sm" style={{ color: 'var(--notion-text-3)' }}>Adicione uma coluna do tipo Status para visualizar como quadro.</p>
         ) : (
-        <div className="flex gap-3 overflow-x-auto pb-3 items-start">
+        <ScrollX className="flex gap-3 overflow-x-auto pb-3 items-start">
           {(groupCol.config.options || []).map(o => {
             const cardsHere = shown.filter(r => { const v = r.data[groupCol.id]; return v === o.id || v === o.label })
             return (
@@ -721,7 +722,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
               </div>
             )
           })}
-        </div>
+        </ScrollX>
         )
       ) : (
         <div className="text-center py-16 text-sm" style={{ color: 'var(--notion-text-3)' }}>Esta visualização estará disponível em breve.</div>

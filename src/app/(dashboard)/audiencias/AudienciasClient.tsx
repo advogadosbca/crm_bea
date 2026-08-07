@@ -5,6 +5,7 @@ import { Gavel, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
+import { ScrollX } from '@/components/ui/ScrollX'
 import { Toolbar, Modal, ModalActions, Field, Input, Select, Textarea, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
 
 interface Audiencia {
@@ -58,7 +59,7 @@ export function AudienciasClient({ headerAssets, audiencias, processos, members,
         initialBanner={headerAssets.banner} initialLogo={headerAssets.logo} canEdit={headerAssets.canEdit} />
       <div className="px-16 py-6">
         <Toolbar search={search} setSearch={setSearch} onNew={() => setShow(true)} placeholder="Buscar audiência..." />
-        <div className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
+        <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
           <table className="w-full text-sm">
             <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
               {['Título', 'Data/Hora', 'Tipo', 'Processo', 'Local', 'Status'].map(h => (
@@ -88,7 +89,7 @@ export function AudienciasClient({ headerAssets, audiencias, processos, members,
               </td></tr>
             </tfoot>
           </table>
-        </div>
+        </ScrollX>
         <p className="text-xs mt-3" style={{ color: 'var(--notion-text-3)' }}>{filtered.length} audiência{filtered.length !== 1 ? 's' : ''}</p>
       </div>
 

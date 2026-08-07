@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { uploadFile, deleteFile } from '@/lib/upload'
 import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
 import { initials, personColor } from '@/lib/people'
+import { ScrollX } from '@/components/ui/ScrollX'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -187,7 +188,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
         </div>
       )}
 
-      <div className="flex gap-3 overflow-x-auto pb-2 items-start">
+      <ScrollX className="flex gap-3 overflow-x-auto pb-2 items-start">
         {lists.sort((a, b) => a.position - b.position).map(list => {
           const listCards = visiveis.filter(c => c.list_id === list.id).sort((a, b) => a.position - b.position)
           return (
@@ -284,7 +285,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
             </button>
           )}
         </div>
-      </div>
+      </ScrollX>
 
       {current && (
         <CardModal card={current} lists={lists} labels={labels} members={members} userId={userId} workspaceId={workspaceId}

@@ -5,6 +5,7 @@ import { Megaphone, TrendingUp, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
+import { ScrollX } from '@/components/ui/ScrollX'
 import { Toolbar, Modal, ModalActions, Field, Input, Select, Textarea, Tag, EmptyRow, fmtDate, fmtBRL } from '@/components/ui/primitives'
 
 interface Campanha {
@@ -75,7 +76,7 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId 
           </div>
         </div>
         <Toolbar search={search} setSearch={setSearch} onNew={() => setShow(true)} placeholder="Buscar campanha..." />
-        <div className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
+        <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
           <table className="w-full text-sm">
             <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
               {['Campanha', 'Canal', 'Status', 'Leads', 'Orçamento', 'Início', 'Fim', 'Responsável'].map(h => (
@@ -105,7 +106,7 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId 
               </td></tr>
             </tfoot>
           </table>
-        </div>
+        </ScrollX>
         <p className="text-xs mt-3" style={{ color: 'var(--notion-text-3)' }}>{filtered.length} campanha{filtered.length !== 1 ? 's' : ''}</p>
       </div>
 

@@ -9,6 +9,7 @@ import { Plus, Search, ChevronLeft, X, Scale, AlarmClock } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
+import { ScrollX } from '@/components/ui/ScrollX'
 
 interface Member { id: string; full_name: string; avatar_url?: string }
 
@@ -154,7 +155,7 @@ export function ProcessosClient({ processos, members, contacts, workspaceId, hea
         </div>
 
         {/* Table */}
-        <div className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
+        <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
@@ -220,7 +221,7 @@ export function ProcessosClient({ processos, members, contacts, workspaceId, hea
               </td></tr>
             </tfoot>
           </table>
-        </div>
+        </ScrollX>
 
         <p className="text-xs mt-3" style={{ color: 'var(--notion-text-3)' }}>
           {filtered.length} processo{filtered.length !== 1 ? 's' : ''}
