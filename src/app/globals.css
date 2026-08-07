@@ -37,8 +37,18 @@ body {
 .scrollx-body { scrollbar-width: none; }
 .scrollx-body::-webkit-scrollbar { height: 0; }
 
-/* Focus ring */
+/* Focus ring — botões, links e afins mantêm o anel de destaque */
 *:focus-visible { outline: 2px solid var(--notion-accent); outline-offset: 2px; }
+
+/* Campos de digitação: o anel roxo de 2px pesava demais nos painéis de registro.
+   Um contorno fino e neutro basta — o próprio fundo do campo em edição já mostra
+   onde se está digitando, e quem navega por teclado continua enxergando o foco. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
 
 /* Cursor de mão em tudo que é clicável */
 button, a, select, label, summary, [role="button"], [role="tab"], [role="option"], .cursor-pointer {

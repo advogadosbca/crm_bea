@@ -788,24 +788,23 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
               className="w-full bg-transparent text-2xl font-bold outline-none mb-5" style={{ color: 'var(--notion-text)' }} />
           )}
 
-          <div className="space-y-1">
-            {fieldCols.map(col => {
-              const auto = ['created_at', 'updated_at', 'created_by', 'updated_by'].includes(col.type)
-              return (
-                <div key={col.id} className="flex items-start gap-3 py-1">
-                  <div className="flex items-center gap-2 w-44 flex-shrink-0 pt-2 text-sm" style={{ color: 'var(--notion-text-3)' }}>
-                    <TypeIcon icon={col.config.icon || typeMeta(col.type)?.icon || 'Type'} className="w-3.5 h-3.5" />
-                    <span className="truncate">{col.name}</span>
-                  </div>
-                  <div className="flex-1 min-w-0 rounded-md" style={{ background: auto ? 'transparent' : 'var(--notion-bg-2)' }}>
-                    <Cell column={col} value={row.data[col.id]} members={members} sources={sources} row={row} tableColumns={columns}
-                      rowMeta={{ created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by ?? undefined, updated_by: row.updated_by ?? undefined }}
-                      onChange={v => updateCell(row.id, col.id, v)} onUpdateOptions={o => updateColumnOptions(col.id, o)}
-                      onOpenRecord={(s, r) => setNested({ source: s, row: r })} />
-                  </div>
+          <div>
+            {fieldCols.map(col => (
+              // campo sem caixa: fundo só no hover, igual ao painel de registro do
+              // RecordPanel.tsx. A caixa cinza fixa deixava o painel pesado.
+              <div key={col.id} className="flex items-start gap-2 py-px">
+                <div className="flex items-center gap-1.5 w-44 flex-shrink-0 pt-2 text-[13px]" style={{ color: 'var(--notion-text-3)' }}>
+                  <TypeIcon icon={col.config.icon || typeMeta(col.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate" title={col.name}>{col.name}</span>
                 </div>
-              )
-            })}
+                <div className="flex-1 min-w-0 rounded transition-colors hover:bg-[var(--notion-bg-3)]">
+                  <Cell column={col} value={row.data[col.id]} members={members} sources={sources} row={row} tableColumns={columns}
+                    rowMeta={{ created_at: row.created_at, updated_at: row.updated_at, created_by: row.created_by ?? undefined, updated_by: row.updated_by ?? undefined }}
+                    onChange={v => updateCell(row.id, col.id, v)} onUpdateOptions={o => updateColumnOptions(col.id, o)}
+                    onOpenRecord={(s, r) => setNested({ source: s, row: r })} />
+                </div>
+              </div>
+            ))}
           </div>
 
           <RecordTasks rowId={row.id} />
