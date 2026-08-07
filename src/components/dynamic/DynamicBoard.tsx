@@ -18,6 +18,7 @@ import { RecordPanel as RelationRecordPanel } from './RecordPanel'
 import { RecordComments } from './RecordComments'
 import { RecordTasks } from '@/components/board/RecordTasks'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { useIsAdmin } from '@/components/layout/RoleProvider'
 import { TypeIcon } from './TypePicker'
 import { COLUMN_TYPES } from '@/types/dynamic'
 import {
@@ -189,6 +190,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
 }) {
   const supabase = createClient()
   const router = useRouter()
+  const isAdmin = useIsAdmin()
   const [columns, setColumns] = useState(initialColumns)
   const [rows, setRows] = useState(initialRows)
   const [views, setViews] = useState<DBView[]>(initialViews.length ? initialViews : [{ id: tableId, name: 'Tabela', type: 'table', position: 0 }])
@@ -442,7 +444,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                         <MenuItem icon={Repeat} label="Exibir como" onClick={() => setExibirSub(true)} arrow />
                         <MenuItem icon={Eye} label="Propriedades exibidas" onClick={() => { setActiveId(v.id); setVisSub(true) }} arrow />
                         <MenuItem icon={Copy} label="Duplicar visualização" onClick={() => duplicateView(v)} />
-                        <MenuItem icon={Trash2} label="Excluir visualização" onClick={() => deleteView(v.id)} danger />
+                        {isAdmin && <MenuItem icon={Trash2} label="Excluir visualização" onClick={() => deleteView(v.id)} danger />}
                       </>
                     )}
                   </div>
@@ -745,6 +747,7 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
 }) {
   const supabase = createClient()
   const router = useRouter()
+  const isAdmin = useIsAdmin()
   const [nested, setNested] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const titleCol = [...columns].sort((a, b) => a.position - b.position).find(c => c.type === 'text') || columns[0]
   const fieldCols = columns.filter(c => c !== titleCol).sort((a, b) => a.position - b.position)
@@ -772,7 +775,7 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
         <div className="flex items-center justify-between px-6 py-3 sticky top-0 z-10" style={{ background: 'var(--notion-bg)', borderBottom: '1px solid var(--notion-border)' }}>
           <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Registro</span>
           <div className="flex items-center gap-1">
-            <button onClick={del} className="px-2 py-1 rounded text-xs" style={{ color: '#F87171' }}>Excluir</button>
+            {isAdmin && <button onClick={del} className="px-2 py-1 rounded text-xs" style={{ color: '#F87171' }}>Excluir</button>}
             <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>
         </div>

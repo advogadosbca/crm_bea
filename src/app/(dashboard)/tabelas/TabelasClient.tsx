@@ -9,6 +9,7 @@ import { DynamicBoard, DBView } from '@/components/dynamic/DynamicBoard'
 import { DBColumn, DBRow, DBTable, DataSource } from '@/types/dynamic'
 import { Table2, Plus, ChevronLeft, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import Link from 'next/link'
+import { useIsAdmin } from '@/components/layout/RoleProvider'
 
 export function TabelasClient({ tables, activeId, columns, rows, sources, views, members, workspaceId, userId, headerAssets }: {
   tables: DBTable[]; activeId: string; columns: DBColumn[]; rows: DBRow[]; sources: DataSource[]; views: DBView[]
@@ -19,6 +20,7 @@ export function TabelasClient({ tables, activeId, columns, rows, sources, views,
   const active = activeId
   const [menu, setMenu] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
+  const isAdmin = useIsAdmin()
 
   async function createTable() {
     const { data } = await supabase.from('db_tables').insert({ workspace_id: workspaceId, name: 'Nova tabela', position: tables.length }).select('*').single()
@@ -77,7 +79,7 @@ export function TabelasClient({ tables, activeId, columns, rows, sources, views,
                   <div className="fixed inset-0 z-40" onClick={() => setMenu(false)} />
                   <div className="absolute left-0 top-9 z-50 w-40 rounded-lg p-1 shadow-xl" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
                     <button onClick={() => { setRenaming(t.id); setMenu(false) }} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}><Pencil className="w-3.5 h-3.5" /> Renomear</button>
-                    <button onClick={() => deleteTable(t.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /> Excluir</button>
+                    {isAdmin && <button onClick={() => deleteTable(t.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /> Excluir</button>}
                   </div>
                 </>
               )}

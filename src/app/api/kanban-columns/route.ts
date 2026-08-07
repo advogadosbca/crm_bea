@@ -11,8 +11,12 @@ async function ctx() {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const { data: profile } = await supabase.from('profiles').select('workspace_id').eq('id', user.id).single()
-  return { supabase, workspaceId: profile?.workspace_id as string | undefined }
+  const { data: profile } = await supabase.from('profiles').select('workspace_id, role').eq('id', user.id).single()
+  return {
+    supabase,
+    workspaceId: profile?.workspace_id as string | undefined,
+    isAdmin: ['admin', 'super_admin'].includes((profile?.role as string) || ''),
+  }
 }
 
 // criar coluna
@@ -61,6 +65,8 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   const c = await ctx()
   if (!c?.workspaceId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  // a RLS já barra o DELETE, mas ela falha em silêncio (0 linhas) — aqui o erro é explícito
+  if (!c.isAdmin) return NextResponse.json({ error: 'Somente administradores podem excluir' }, { status: 403 })
   const { id, board_key, label } = await req.json()
 
   const field = FIELD[board_key]

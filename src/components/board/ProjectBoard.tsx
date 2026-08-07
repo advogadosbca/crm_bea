@@ -7,6 +7,7 @@ import { uploadFile, deleteFile } from '@/lib/upload'
 import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
 import { initials, personColor } from '@/lib/people'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { useIsAdmin } from '@/components/layout/RoleProvider'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -65,6 +66,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const [newList, setNewList] = useState('')
   const [openCard, setOpenCard] = useState<string | null>(null)
   const [listMenu, setListMenu] = useState<string | null>(null)
+  const isAdmin = useIsAdmin()
   // filtro por responsável: vazio = todos; '__none__' = cartões sem ninguém
   const [filtro, setFiltro] = useState<string[]>([])
 
@@ -208,7 +210,9 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setListMenu(null)} />
                     <div className="absolute right-0 top-7 z-50 w-36 rounded-lg p-1 shadow-xl" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
-                      <button onClick={() => deleteList(list.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /> Excluir lista</button>
+                      {isAdmin
+                        ? <button onClick={() => deleteList(list.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /> Excluir lista</button>
+                        : <p className="px-2 py-1.5 text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem ações disponíveis</p>}
                     </div>
                   </>
                 )}
@@ -306,6 +310,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
 }) {
   const supabase = createClient()
   const router = useRouter()
+  const isAdmin = useIsAdmin()
   const [title, setTitle] = useState(card.title)
   const [desc, setDesc] = useState(card.description || '')
   const [editDesc, setEditDesc] = useState(false)
@@ -563,7 +568,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                 <button onClick={() => setCardState('open')} className="px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Reabrir</button>
               </>
             )}
-            <button onClick={deleteCard} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-4 h-4" /></button>
+            {isAdmin && <button onClick={deleteCard} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-4 h-4" /></button>}
             <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>
         </div>

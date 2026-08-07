@@ -7,6 +7,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { HeaderAssets } from '@/components/layout/EditableHeader'
 import { Database, Plus, ChevronLeft, Table2, Columns3, Rows3, Pencil, Trash2, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
+import { useIsAdmin } from '@/components/layout/RoleProvider'
 
 interface Source { id: string; name: string; created_at: string; columns: number; rows: number }
 
@@ -16,6 +17,7 @@ export function FontesClient({ sources, workspaceId, headerAssets }: {
   const supabase = createClient()
   const router = useRouter()
   const [renaming, setRenaming] = useState<string | null>(null)
+  const isAdmin = useIsAdmin()
   void headerAssets
 
   async function createSource() {
@@ -90,7 +92,7 @@ export function FontesClient({ sources, workspaceId, headerAssets }: {
                 </Link>
                 <div className="flex items-center gap-1">
                   <button onClick={() => setRenaming(s.id)} className="p-1 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><Pencil className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => remove(s.id)} className="p-1 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /></button>
+                  {isAdmin && <button onClick={() => remove(s.id)} className="p-1 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
               </div>
             </div>

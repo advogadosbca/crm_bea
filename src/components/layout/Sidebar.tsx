@@ -5,10 +5,11 @@ import { usePathname } from 'next/navigation'
 import {
   Settings, Users, TrendingUp, FileText, Scale,
   Gavel, Building2, Target, Users2, Megaphone,
-  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3
+  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { useIsAdmin } from './RoleProvider'
 
 const modules = [
   { href: '/', label: 'Início', icon: Home },
@@ -29,10 +30,17 @@ const modules = [
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
+// só aparece para admin/super_admin (a RLS do banco também barra a leitura do log)
+const modulosAdmin = [
+  { href: '/auditoria', label: 'Auditoria', icon: History },
+]
+
 export function Sidebar({ workspaceName }: { workspaceName?: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  const isAdmin = useIsAdmin()
+  const itens = isAdmin ? [...modules, ...modulosAdmin] : modules
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -60,7 +68,7 @@ export function Sidebar({ workspaceName }: { workspaceName?: string }) {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 py-2">
-        {modules.map((mod) => {
+        {itens.map((mod) => {
           const Icon = mod.icon
           const isActive = pathname === mod.href
           return (

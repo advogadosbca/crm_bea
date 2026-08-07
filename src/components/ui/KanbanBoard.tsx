@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { User as UserIcon, MoreHorizontal, Plus, Check, Trash2, Pencil, Copy } from 'lucide-react'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { useIsAdmin } from '@/components/layout/RoleProvider'
 
 type ContactRow = Contact & { responsavel?: { full_name: string; avatar_url?: string } | null }
 
@@ -47,6 +48,7 @@ function MiniTag({ label, color }: { label: string; color: string }) {
 export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit, showTags = [], onNewPage, onEditCard }: Props) {
   const supabase = createClient()
   const router = useRouter()
+  const isAdmin = useIsAdmin()
   const [columns, setColumns] = useState<KanbanColumn[]>(initialColumns)
   const [local, setLocal] = useState<ContactRow[]>(contacts)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -169,10 +171,12 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
                         </button>
                       ))}
                     </div>
-                    <button onClick={() => removeColumn(col)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors mt-1" style={{ color: '#F87171' }}>
-                      <Trash2 className="w-3.5 h-3.5" /> Excluir funil
-                    </button>
+                    {isAdmin && (
+                      <button onClick={() => removeColumn(col)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors mt-1" style={{ color: '#F87171' }}>
+                        <Trash2 className="w-3.5 h-3.5" /> Excluir funil
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -214,10 +218,12 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: 'var(--notion-text)' }}>
                           <Copy className="w-3.5 h-3.5" /> Duplicar
                         </button>
-                        <button onClick={() => deleteCard(c)}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: '#F87171' }}>
-                          <Trash2 className="w-3.5 h-3.5" /> Excluir
-                        </button>
+                        {isAdmin && (
+                          <button onClick={() => deleteCard(c)}
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: '#F87171' }}>
+                            <Trash2 className="w-3.5 h-3.5" /> Excluir
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
@@ -252,9 +258,8 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
         )
       })}
 
-      {/* Adicionar funil */}
-      {canEdit && (
-        <div className="flex-shrink-0 w-64">
+      {/* Adicionar funil — criar é liberado para qualquer usuário (só excluir é de admin) */}
+      <div className="flex-shrink-0 w-64">
           {adding ? (
             <div className="rounded-xl p-2" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
               <input autoFocus value={newLabel} onChange={e => setNewLabel(e.target.value)}
@@ -271,8 +276,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
               <Plus className="w-3.5 h-3.5" /> Adicionar funil
             </button>
           )}
-        </div>
-      )}
+      </div>
     </ScrollX>
   )
 }

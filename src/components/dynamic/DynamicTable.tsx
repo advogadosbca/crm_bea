@@ -218,7 +218,8 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     const { data } = await supabase.from('db_rows').insert({ table_id: tableId, data: {}, position, created_by: userId, updated_by: userId }).select('*').single()
     if (data) {
       publishRows([...rows, data as DBRow])
-      pushUndo('adicionar linha', async () => {
+      // desfazer um "adicionar" é um DELETE, que só admin pode fazer
+      if (isAdmin) pushUndo('adicionar linha', async () => {
         publishRows(rowsRef.current.filter(r => r.id !== data.id))
         await supabase.from('db_rows').delete().eq('id', data.id)
       })
@@ -247,7 +248,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       await Promise.all(shifted.filter(c => c.position !== columns.find(o => o.id === c.id)?.position).map(c =>
         supabase.from('db_columns').update({ position: c.position }).eq('id', c.id)))
       publishColumns([...shifted, data as DBColumn])
-      pushUndo('adicionar coluna', async () => {
+      if (isAdmin) pushUndo('adicionar coluna', async () => {
         publishColumns(columns.filter(c => c.id !== data.id))
         await supabase.from('db_columns').delete().eq('id', data.id)
       })
@@ -310,7 +311,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
       setRows(updates)
       setColumns(cs => [...cs, newCol as DBColumn])
       await Promise.all(updates.map(r => supabase.from('db_rows').update({ data: r.data }).eq('id', r.id)))
-      pushUndo('duplicar coluna', async () => {
+      if (isAdmin) pushUndo('duplicar coluna', async () => {
         setColumns(cs => cs.filter(c => c.id !== newCol.id))
         await supabase.from('db_columns').delete().eq('id', newCol.id)
       })
@@ -403,9 +404,11 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
           </td>
         ))}
         <td className="w-10 align-middle text-center">
-          <button onClick={() => deleteRow(row.id)} className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {isAdmin && (
+            <button onClick={() => deleteRow(row.id)} className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </td>
       </tr>
     )
@@ -617,7 +620,7 @@ function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRenam
             <Item icon={ArrowLeftToLine} label="Inserir à esquerda" onClick={onInsertLeft} />
             <Item icon={ArrowRightToLine} label="Inserir à direita" onClick={onInsertRight} />
             <Item icon={Copy} label="Duplicar coluna" onClick={onDuplicate} />
-            <Item icon={Trash2} label="Excluir coluna" onClick={onDelete} danger />
+            {isAdmin && <Item icon={Trash2} label="Excluir coluna" onClick={onDelete} danger />}
           </>
         )}
       </div>
