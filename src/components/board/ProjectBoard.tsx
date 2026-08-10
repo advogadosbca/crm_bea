@@ -12,7 +12,7 @@ import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
-  CheckSquare, CheckCircle2, Ban, UserX,
+  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -50,6 +50,16 @@ function MemberAvatar({ member, size = 24, ring }: { member: BMember; size?: num
   )
 }
 
+/** contador de uma faixa de gravidade dentro da barra de atrasos */
+function Gravidade({ n, cor, texto }: { n: number; cor: string; texto: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style={{ background: `${cor}25`, color: cor }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: cor }} />
+      <b>{n}</b> {texto}
+    </span>
+  )
+}
+
 export function ProjectBoard({ lists: initLists, cards: initCards, labels: initLabels, members, workspaceId, userId, openCardId }: {
   lists: BList[]; cards: BCard[]; labels: BLabel[]; members: BMember[]; workspaceId: string; userId: string
   /** cartão a abrir automaticamente (link ?card= vindo do painel do cliente) */
@@ -72,6 +82,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const boardRef = useRef<HTMLDivElement>(null)
   // filtro por responsável: vazio = todos; '__none__' = cartões sem ninguém
   const [filtro, setFiltro] = useState<string[]>([])
+  const [soAtrasadas, setSoAtrasadas] = useState(false)
 
   useEffect(() => { setLists(initLists) }, [initLists])
   useEffect(() => { setCards(initCards) }, [initCards])
@@ -149,12 +160,54 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const comCartao = members.filter(m => cards.some(c => c.members.includes(m.id)))
   const temSemResponsavel = cards.some(c => c.members.length === 0)
   const toggleFiltro = (id: string) => setFiltro(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
-  const visiveis = filtro.length
+
+  // Atraso: prazo 9, hoje 10 => 1 dia atrasada. Sem carência — comparação por dia.
+  // A gradação abaixo serve só para ordenar a gravidade entre as atrasadas;
+  // toda atrasada é vermelha, nenhuma aparece como "ainda ok".
+  const diasDeAtraso = (c: BCard): number | null => {
+    if (!c.due_date || c.completed) return null
+    const prazo = c.due_date.split('T')[0]
+    if (prazo >= today) return null
+    return Math.round((Date.parse(today) - Date.parse(prazo)) / 864e5)
+  }
+  const corDoAtraso = (dias: number) => dias > 30 ? '#DC2626' : dias > 7 ? '#EF4444' : '#F87171'
+
+  const atrasos = cards.map(diasDeAtraso).filter((d): d is number => d !== null)
+  const criticas = atrasos.filter(d => d > 30).length
+  const medias = atrasos.filter(d => d > 7 && d <= 30).length
+  const recentes = atrasos.filter(d => d <= 7).length
+
+  const porResponsavel = filtro.length
     ? cards.filter(c => filtro.some(f => f === '__none__' ? c.members.length === 0 : c.members.includes(f)))
     : cards
+  const visiveis = soAtrasadas ? porResponsavel.filter(c => diasDeAtraso(c) !== null) : porResponsavel
 
   return (
     <div ref={boardRef} className="rounded-xl p-3" style={{ background: 'rgba(15,42,77,0.25)', border: '1px solid var(--notion-border)' }}>
+      {/* resumo de atrasos — clica e o quadro mostra só o que está vencido */}
+      {atrasos.length > 0 && (
+        <button onClick={() => setSoAtrasadas(v => !v)}
+          title={soAtrasadas ? 'Mostrar todas as tarefas' : 'Mostrar só as atrasadas'}
+          className="w-full flex items-center gap-3 flex-wrap px-3 py-2.5 mb-3 rounded-lg text-left transition-colors"
+          style={{
+            background: soAtrasadas ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.08)',
+            border: `1px solid ${soAtrasadas ? '#DC2626' : 'rgba(220,38,38,0.35)'}`,
+          }}>
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#F87171' }} />
+          <span className="text-sm font-semibold" style={{ color: '#F87171' }}>
+            {atrasos.length} {atrasos.length === 1 ? 'tarefa atrasada' : 'tarefas atrasadas'}
+          </span>
+          <span className="flex items-center gap-2 flex-wrap text-[11px]">
+            {criticas > 0 && <Gravidade n={criticas} cor="#DC2626" texto="há mais de 30 dias" />}
+            {medias > 0 && <Gravidade n={medias} cor="#EF4444" texto="há 8 a 30 dias" />}
+            {recentes > 0 && <Gravidade n={recentes} cor="#F87171" texto="há até 7 dias" />}
+          </span>
+          <span className="ml-auto text-[11px] whitespace-nowrap" style={{ color: 'var(--notion-text-2)' }}>
+            {soAtrasadas ? 'mostrando só atrasadas · clique para ver tudo' : 'clique para ver só estas'}
+          </span>
+        </button>
+      )}
+
       {/* filtro por responsável — ver tudo ou só os prazos de uma pessoa */}
       {(comCartao.length > 0 || temSemResponsavel) && (
         <div className="flex items-center gap-1.5 flex-wrap mb-3">
@@ -235,13 +288,19 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 
               <div className="space-y-2">
                 {listCards.map(card => {
-                  const overdue = card.due_date && card.due_date.split('T')[0] < today
+                  const atraso = diasDeAtraso(card)
+                  const corAtraso = atraso !== null ? corDoAtraso(atraso) : null
                   return (
                     <div key={card.id} draggable
                       onDragStart={() => setDragId(card.id)} onDragEnd={() => { setDragId(null); setOverList(null) }}
                       onClick={() => setOpenCard(card.id)}
                       className="rounded-lg p-2.5 border cursor-pointer transition-all hover:border-[var(--notion-accent)]"
-                      style={{ background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)', opacity: dragId === card.id ? 0.4 : 1 }}>
+                      style={{
+                        background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)',
+                        // faixa vermelha à esquerda: quanto mais escura, mais antigo o atraso
+                        borderLeft: corAtraso ? `4px solid ${corAtraso}` : undefined,
+                        opacity: dragId === card.id ? 0.4 : 1,
+                      }}>
                       {card.labels.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-1.5">
                           {card.labels.map(lid => { const l = label(lid); return l ? <span key={lid} className="h-2 w-9 rounded-full" style={{ background: l.color }} title={l.name} /> : null })}
@@ -258,9 +317,18 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                           </span>
                         )}
                         {card.due_date && (
+                          // atrasada mostra o tamanho do atraso, que é o que orienta a ação;
+                          // no prazo continua mostrando a data
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
-                            style={{ background: overdue ? 'rgba(239,68,68,0.18)' : 'var(--notion-bg-4)', color: overdue ? '#F87171' : 'var(--notion-text-2)' }}>
-                            <Clock className="w-3 h-3" /> {new Date(card.due_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                            title={new Date(card.due_date).toLocaleDateString('pt-BR')}
+                            style={{
+                              background: corAtraso ? `${corAtraso}2e` : 'var(--notion-bg-4)',
+                              color: corAtraso || 'var(--notion-text-2)',
+                            }}>
+                            <Clock className="w-3 h-3" />
+                            {atraso !== null
+                              ? `atrasada há ${atraso} ${atraso === 1 ? 'dia' : 'dias'}`
+                              : new Date(card.due_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
                           </span>
                         )}
                         {card.description && <AlignLeft className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} />}
