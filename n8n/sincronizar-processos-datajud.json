@@ -1,0 +1,312 @@
+{
+  "name": "CRM - Sincronizar processos com DataJud",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "name": "Todo dia 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-720, 0],
+      "id": "a1000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "url": "https://crm.bernardeseazevedo.com.br/api/v1/processos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CRM_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Buscar processos no CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-500, 0],
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "processos",
+        "options": {}
+      },
+      "name": "Um item por processo",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [-290, 0],
+      "id": "a1000000-0000-4000-8000-000000000003"
+    },
+    {
+      "parameters": {
+        "jsCode": "// J + TR -> índice DataJud (Resolução CNJ 65/2008)\nconst mapaTribunais = {\n  '3-00': 'stj',\n  '4-01': 'trf1', '4-02': 'trf2', '4-03': 'trf3', '4-04': 'trf4', '4-05': 'trf5', '4-06': 'trf6',\n  '5-00': 'tst',\n  '5-01': 'trt1', '5-02': 'trt2', '5-03': 'trt3', '5-04': 'trt4', '5-05': 'trt5',\n  '5-06': 'trt6', '5-07': 'trt7', '5-08': 'trt8', '5-09': 'trt9', '5-10': 'trt10',\n  '5-11': 'trt11', '5-12': 'trt12', '5-13': 'trt13', '5-14': 'trt14', '5-15': 'trt15',\n  '5-16': 'trt16', '5-17': 'trt17', '5-18': 'trt18', '5-19': 'trt19', '5-20': 'trt20',\n  '5-21': 'trt21', '5-22': 'trt22', '5-23': 'trt23', '5-24': 'trt24',\n  '6-00': 'tse',\n  '6-01': 'tre-ac', '6-02': 'tre-al', '6-03': 'tre-ap', '6-04': 'tre-am', '6-05': 'tre-ba',\n  '6-06': 'tre-ce', '6-07': 'tre-dft', '6-08': 'tre-es', '6-09': 'tre-go', '6-10': 'tre-ma',\n  '6-11': 'tre-mt', '6-12': 'tre-ms', '6-13': 'tre-mg', '6-14': 'tre-pa', '6-15': 'tre-pb',\n  '6-16': 'tre-pr', '6-17': 'tre-pe', '6-18': 'tre-pi', '6-19': 'tre-rj', '6-20': 'tre-rn',\n  '6-21': 'tre-rs', '6-22': 'tre-ro', '6-23': 'tre-rr', '6-24': 'tre-sc', '6-25': 'tre-se',\n  '6-26': 'tre-sp', '6-27': 'tre-to',\n  '8-01': 'tjac', '8-02': 'tjal', '8-03': 'tjap', '8-04': 'tjam', '8-05': 'tjba',\n  '8-06': 'tjce', '8-07': 'tjdft', '8-08': 'tjes', '8-09': 'tjgo', '8-10': 'tjma',\n  '8-11': 'tjmt', '8-12': 'tjms', '8-13': 'tjmg', '8-14': 'tjpa', '8-15': 'tjpb',\n  '8-16': 'tjpr', '8-17': 'tjpe', '8-18': 'tjpi', '8-19': 'tjrj', '8-20': 'tjrn',\n  '8-21': 'tjrs', '8-22': 'tjro', '8-23': 'tjrr', '8-24': 'tjsc', '8-25': 'tjse',\n  '8-26': 'tjsp', '8-27': 'tjto',\n  '9-13': 'tjmmg', '9-21': 'tjmrs', '9-26': 'tjmsp'\n};\n\nreturn $input.all().map(item => {\n  const numero = item.json.numero;\n  const numeroLimpo = String(numero).replace(/\\D/g, '').padStart(20, '0');\n\n  // posições fixas do número CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO\n  const j = String(parseInt(numeroLimpo.substring(13, 14), 10));\n  const tr = numeroLimpo.substring(14, 16);\n  const indice = mapaTribunais[`${j}-${tr}`] || null;\n\n  return {\n    json: {\n      rowId: item.json.rowId,\n      numero,\n      numeroLimpo,\n      indice,\n      url: indice ? `https://api-publica.datajud.cnj.jus.br/api_publica_${indice}/_search` : null\n    }\n  };\n});"
+      },
+      "name": "Identificar Tribunal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-80, 0],
+      "id": "a1000000-0000-4000-8000-000000000004"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.indice }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Tribunal Identificado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [140, 0],
+      "id": "a1000000-0000-4000-8000-000000000005"
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {
+          "reset": false
+        }
+      },
+      "name": "Lotes de 10",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [360, -100],
+      "id": "a1000000-0000-4000-8000-000000000006"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=APIKey {{ $env.DATAJUD_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: { match: { numeroProcesso: $json.numeroLimpo } }, _source: ['numeroProcesso','movimentos'] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Consultar DataJud",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, -100],
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai a movimentação MAIS RECENTE de cada processo.\n// Não usa dataHoraUltimaAtualizacao: esse carimbo muda quando o tribunal só\n// reindexa o processo, sem andamento novo (visto na prática: movimentação real\n// em 06/07 e carimbo em 24/07).\nconst saida = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  // o item de entrada correspondente (mesma posição no lote)\n  const origem = $('Lotes de 10').all()[i]?.json || {};\n  const hits = item.json?.hits?.hits || [];\n\n  if (!hits.length) {\n    saida.push({ json: { rowId: origem.rowId, numero: origem.numero, semRegistro: true } });\n    continue;\n  }\n\n  const p = hits[0]._source || {};\n  const movs = [...(p.movimentos || [])].sort(\n    (a, b) => new Date(b.dataHora) - new Date(a.dataHora)\n  );\n  const ultimo = movs[0];\n\n  if (!ultimo) {\n    saida.push({ json: { rowId: origem.rowId, numero: origem.numero, semRegistro: true } });\n    continue;\n  }\n\n  saida.push({\n    json: {\n      rowId: origem.rowId,\n      numero: origem.numero || p.numeroProcesso,\n      semRegistro: false,\n      movimento: {\n        codigo: ultimo.codigo,\n        nome: ultimo.nome,\n        dataHora: ultimo.dataHora,\n        complementosTabelados: ultimo.complementosTabelados || []\n      }\n    }\n  });\n}\n\nreturn saida;"
+      },
+      "name": "Ultima Movimentacao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, -100],
+      "id": "a1000000-0000-4000-8000-000000000008"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond2",
+              "leftValue": "={{ $json.semRegistro }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Achou no DataJud?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1020, -100],
+      "id": "a1000000-0000-4000-8000-000000000009"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://crm.bernardeseazevedo.com.br/api/v1/processos/sincronizar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CRM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ numero: $json.numero, movimento: $json.movimento }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Atualizar CRM se mudou",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, -180],
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "name": "Pausa entre lotes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1460, -180],
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "webhookId": "b2000000-0000-4000-8000-000000000011"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Consolida o que aconteceu na execução, para aparecer no log do n8n.\nconst itens = $input.all().map(i => i.json);\nconst conta = (s) => itens.filter(i => i.status === s).length;\n\nreturn [{\n  json: {\n    processados: itens.length,\n    atualizados: conta('atualizado'),\n    sem_mudanca: conta('sem_mudanca'),\n    nao_encontrados_no_crm: conta('nao_encontrado'),\n    detalhe_atualizados: itens\n      .filter(i => i.status === 'atualizado')\n      .map(i => ({ movimentacao: i.movimentacao, data: i.dataMovimentacao, anterior: i.anterior }))\n  }\n}];"
+      },
+      "name": "Resumo da execucao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, -180],
+      "id": "a1000000-0000-4000-8000-000000000012",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Processos que o DataJud não retornou: sigiloso, não indexado, ou tribunal\n// que ainda não publica na API. Não é erro do fluxo — fica registrado para conferência.\nreturn $input.all().map(i => ({\n  json: { numero: i.json.numero, motivo: 'sem registro no DataJud' }\n}));"
+      },
+      "name": "Sem registro no DataJud",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, -20],
+      "id": "a1000000-0000-4000-8000-000000000013"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Número que não casa com nenhum tribunal conhecido — normalmente número digitado errado.\nreturn $input.all().map(i => ({\n  json: { numero: i.json.numero, motivo: 'tribunal não identificado pelo número CNJ' }\n}));"
+      },
+      "name": "Tribunal Nao Identificado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [360, 140],
+      "id": "a1000000-0000-4000-8000-000000000014"
+    }
+  ],
+  "connections": {
+    "Todo dia 06:00": {
+      "main": [[{ "node": "Buscar processos no CRM", "type": "main", "index": 0 }]]
+    },
+    "Buscar processos no CRM": {
+      "main": [[{ "node": "Um item por processo", "type": "main", "index": 0 }]]
+    },
+    "Um item por processo": {
+      "main": [[{ "node": "Identificar Tribunal", "type": "main", "index": 0 }]]
+    },
+    "Identificar Tribunal": {
+      "main": [[{ "node": "Tribunal Identificado?", "type": "main", "index": 0 }]]
+    },
+    "Tribunal Identificado?": {
+      "main": [
+        [{ "node": "Lotes de 10", "type": "main", "index": 0 }],
+        [{ "node": "Tribunal Nao Identificado", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lotes de 10": {
+      "main": [
+        [{ "node": "Resumo da execucao", "type": "main", "index": 0 }],
+        [{ "node": "Consultar DataJud", "type": "main", "index": 0 }]
+      ]
+    },
+    "Consultar DataJud": {
+      "main": [[{ "node": "Ultima Movimentacao", "type": "main", "index": 0 }]]
+    },
+    "Ultima Movimentacao": {
+      "main": [[{ "node": "Achou no DataJud?", "type": "main", "index": 0 }]]
+    },
+    "Achou no DataJud?": {
+      "main": [
+        [{ "node": "Atualizar CRM se mudou", "type": "main", "index": 0 }],
+        [{ "node": "Sem registro no DataJud", "type": "main", "index": 0 }]
+      ]
+    },
+    "Atualizar CRM se mudou": {
+      "main": [[{ "node": "Pausa entre lotes", "type": "main", "index": 0 }]]
+    },
+    "Pausa entre lotes": {
+      "main": [[{ "node": "Lotes de 10", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
