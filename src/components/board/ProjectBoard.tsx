@@ -716,11 +716,15 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
               <span className="text-xs font-medium flex items-center gap-1.5 mb-1.5" style={{ color: 'var(--notion-text-3)' }}><AlignLeft className="w-3.5 h-3.5" /> Descrição</span>
               {editDesc ? (
                 <div>
-                  <textarea autoFocus value={desc} onChange={e => setDesc(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-accent)' }} />
+                  {/* alto por padrão e ainda arrastável na vertical (resize-y) */}
+                  <textarea autoFocus value={desc} onChange={e => setDesc(e.target.value)} rows={12}
+                    className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-y min-h-[160px] leading-relaxed"
+                    style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-accent)' }} />
                   <div className="flex gap-2 mt-2"><button onClick={saveDesc} className="px-3 py-1 rounded text-xs font-medium" style={{ background: 'var(--notion-accent)', color: '#fff' }}>Salvar</button><button onClick={() => { setEditDesc(false); setDesc(card.description || '') }} className="px-3 py-1 rounded text-xs" style={{ color: 'var(--notion-text-3)' }}>Cancelar</button></div>
                 </div>
               ) : (
-                <div onClick={() => setEditDesc(true)} className="px-3 py-2 rounded-lg text-sm cursor-text whitespace-pre-wrap min-h-[60px]" style={{ background: 'var(--notion-bg-3)', color: card.description ? 'var(--notion-text-2)' : 'var(--notion-text-3)' }}>
+                // leitura: cresce com o texto; a altura mínima evita o salto ao entrar em edição
+                <div onClick={() => setEditDesc(true)} className="px-3 py-2 rounded-lg text-sm cursor-text whitespace-pre-wrap break-words min-h-[160px] leading-relaxed" style={{ background: 'var(--notion-bg-3)', color: card.description ? 'var(--notion-text-2)' : 'var(--notion-text-3)' }}>
                   {card.description || 'Adicionar uma descrição...'}
                 </div>
               )}
