@@ -559,7 +559,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.6)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-3xl my-8 rounded-2xl animate-fade-in" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }} onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-6xl my-8 rounded-2xl animate-fade-in" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
           <select value={card.list_id} onChange={e => moveToList(e.target.value)} className="text-xs px-2 py-1 rounded-md outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
             {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
@@ -588,9 +588,11 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-5 p-5">
+        {/* 3/5 + 2/5: o histórico ganha mais largura que o antigo 1/3, para o
+            comentário não quebrar em muitas linhas. Abaixo de lg, empilha. */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 p-5">
           {/* coluna principal */}
-          <div className="col-span-2 space-y-5">
+          <div className="lg:col-span-3 space-y-5">
             <input value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
               className="w-full bg-transparent text-lg font-semibold outline-none" style={{ color: 'var(--notion-text)' }} />
 
@@ -690,13 +692,13 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
           </div>
 
           {/* coluna histórico */}
-          <div className="col-span-1 flex flex-col">
+          <div className="lg:col-span-2 flex flex-col min-w-0">
             <span className="text-xs font-medium flex items-center gap-1.5 mb-2" style={{ color: 'var(--notion-text-3)' }}><MessageSquare className="w-3.5 h-3.5" /> Histórico</span>
             <div className="flex gap-2 mb-3">
               <input value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment() }} placeholder="Escrever comentário..." className="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }} />
               <button onClick={addComment} className="px-2 rounded-lg text-xs" style={{ background: 'var(--notion-accent)', color: '#fff' }}>Enviar</button>
             </div>
-            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
               {history.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem atividades ainda.</p>}
               {history.map(a => { const m = member(a.user_id || '') ; const cor = personColor(a.user_id || ''); return (
                 <div key={a.id} className="flex gap-2">
@@ -706,7 +708,8 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                       <span className="font-medium" style={{ color: 'var(--notion-text)' }}>{m?.full_name || 'Usuário'}</span>{' '}
                       {a.kind === 'event' ? a.text : ''}
                     </p>
-                    {a.kind === 'comment' && <p className="text-xs mt-0.5 px-2 py-1.5 rounded-lg" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)' }}>{a.text}</p>}
+                    {/* preserva as quebras digitadas e corta palavra/URL longa em vez de estourar a coluna */}
+                    {a.kind === 'comment' && <p className="text-xs mt-0.5 px-2 py-1.5 rounded-lg whitespace-pre-wrap break-words" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)' }}>{a.text}</p>}
                     <p className="text-[10px] mt-0.5" style={{ color: 'var(--notion-text-3)' }}>{new Date(a.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>
                   </div>
                 </div>
