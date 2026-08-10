@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Contact, STATUS_GERAL_COLORS, STATUS_GERAL_OPTIONS, ORIGEM_OPTIONS, ALERTA_OPTIONS,
   STATUS_PROCESSUAL_OPTIONS, STATUS_PROCESSUAL_COLORS, FUNIL_OPTIONS,
@@ -34,6 +34,8 @@ interface Props {
   geralTables: { alerta: DynTable; prazos: DynTable; sources: DataSource[] }
   shortcuts: { contatosId: string; leadsId: string }
   leadsBoard?: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null
+  /** ?card=<id>: cartão a abrir direto no Quadro de Tarefas (link vindo do painel do cliente) */
+  openCardId?: string
 }
 
 type Mode = 'tabela' | 'funil' | 'negociacao' | 'acoes'
@@ -48,7 +50,7 @@ function Tag({ label, color }: { label: string; color: string }) {
   )
 }
 
-export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard }: Props) {
+export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard, openCardId }: Props) {
   const canEditBoard = headerAssets.canEdit
   const leadColId = (name: string) => leadsBoard?.columns.find(c => c.name === name)?.id
 
@@ -58,7 +60,9 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
     router.push(`/tabelas?t=${tableId}`)
     void data
   }
+  // o Quadro de Tarefas só existe no modo tabela; se veio link de tarefa, volta pra ele
   const [mode, setMode] = useState<Mode>('tabela')
+  useEffect(() => { if (openCardId) setMode('tabela') }, [openCardId])
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -267,7 +271,7 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
                 <Gavel className="w-4 h-4" style={{ color: '#22D3EE' }} /> Quadro de Tarefas
               </h2>
               <ProjectBoard lists={board.lists} cards={board.cards} labels={board.labels}
-                members={members} workspaceId={workspaceId} userId={userId} />
+                members={members} workspaceId={workspaceId} userId={userId} openCardId={openCardId} />
             </section>
           </div>
         )}

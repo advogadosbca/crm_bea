@@ -50,8 +50,10 @@ function MemberAvatar({ member, size = 24, ring }: { member: BMember; size?: num
   )
 }
 
-export function ProjectBoard({ lists: initLists, cards: initCards, labels: initLabels, members, workspaceId, userId }: {
+export function ProjectBoard({ lists: initLists, cards: initCards, labels: initLabels, members, workspaceId, userId, openCardId }: {
   lists: BList[]; cards: BCard[]; labels: BLabel[]; members: BMember[]; workspaceId: string; userId: string
+  /** cartão a abrir automaticamente (link ?card= vindo do painel do cliente) */
+  openCardId?: string
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -67,12 +69,25 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const [openCard, setOpenCard] = useState<string | null>(null)
   const [listMenu, setListMenu] = useState<string | null>(null)
   const isAdmin = useIsAdmin()
+  const boardRef = useRef<HTMLDivElement>(null)
   // filtro por responsável: vazio = todos; '__none__' = cartões sem ninguém
   const [filtro, setFiltro] = useState<string[]>([])
 
   useEffect(() => { setLists(initLists) }, [initLists])
   useEffect(() => { setCards(initCards) }, [initCards])
   useEffect(() => { setLabels(initLabels) }, [initLabels])
+
+  // veio de um link de tarefa (?card=): rola até o quadro e abre o cartão.
+  // Limpa o parâmetro da URL para o F5 não reabrir e o "voltar" funcionar.
+  useEffect(() => {
+    if (!openCardId || !initCards.some(c => c.id === openCardId)) return
+    setOpenCard(openCardId)
+    // sem 'smooth': o modal cobre a tela durante a animação, e a rolagem suave
+    // é ignorada em parte dos ambientes — aqui o que importa é já estar no lugar
+    // quando o usuário fechar o cartão.
+    boardRef.current?.scrollIntoView({ block: 'start' })
+    window.history.replaceState(null, '', window.location.pathname)
+  }, [openCardId, initCards])
 
   const member = (id: string) => members.find(m => m.id === id)
   const label = (id: string) => labels.find(l => l.id === id)
@@ -139,7 +154,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     : cards
 
   return (
-    <div className="rounded-xl p-3" style={{ background: 'rgba(15,42,77,0.25)', border: '1px solid var(--notion-border)' }}>
+    <div ref={boardRef} className="rounded-xl p-3" style={{ background: 'rgba(15,42,77,0.25)', border: '1px solid var(--notion-border)' }}>
       {/* filtro por responsável — ver tudo ou só os prazos de uma pessoa */}
       {(comCartao.length > 0 || temSemResponsavel) && (
         <div className="flex items-center gap-1.5 flex-wrap mb-3">

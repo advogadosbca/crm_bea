@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
-import { CheckCircle2, Ban, Clock, ListTodo } from 'lucide-react'
+import { CheckCircle2, Ban, Clock, ListTodo, ArrowUpRight } from 'lucide-react'
 
 interface Task {
   id: string
@@ -75,7 +76,9 @@ export function RecordTasks({ rowId }: { rowId: string }) {
           {abertas.map(t => {
             const atrasada = !!t.due_date && t.due_date.split('T')[0] < hoje
             return (
-              <div key={t.id} className="flex items-start gap-2 px-2.5 py-2 rounded-md"
+              // abre o cartão direto no Quadro de Tarefas do /geral
+              <Link key={t.id} href={`/geral?card=${t.id}`}
+                className="group/tarefa flex items-start gap-2 px-2.5 py-2 rounded-md transition-colors hover:border-[var(--notion-accent)]"
                 style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
                 <span className="flex-1 min-w-0">
                   <span className="block text-[13px] truncate" style={{ color: 'var(--notion-text)' }}>{t.title}</span>
@@ -90,7 +93,9 @@ export function RecordTasks({ rowId }: { rowId: string }) {
                     )}
                   </span>
                 </span>
-              </div>
+                <ArrowUpRight className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 opacity-0 transition-opacity group-hover/tarefa:opacity-100"
+                  style={{ color: 'var(--notion-text-3)' }} />
+              </Link>
             )
           })}
         </div>

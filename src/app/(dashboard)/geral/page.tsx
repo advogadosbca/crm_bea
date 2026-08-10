@@ -2,7 +2,11 @@ import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { GeralClient } from './GeralClient'
 import { DBColumn, DBRow, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 
-export default async function GeralPage() {
+export default async function GeralPage({ searchParams }: {
+  searchParams: Promise<{ card?: string }>
+}) {
+  // ?card=<id> vem do link de tarefa no painel do cliente: abre o cartão direto
+  const { card: cardParam } = await searchParams
   const { supabase, user, profile } = await getAuthProfile()
   const workspaceId = profile?.workspace_id
   const assets = await getPageAssets('geral')
@@ -82,6 +86,7 @@ export default async function GeralPage() {
       geralTables={geralTables}
       shortcuts={shortcuts}
       leadsBoard={leadsBoard}
+      openCardId={cardParam}
     />
   )
 }
