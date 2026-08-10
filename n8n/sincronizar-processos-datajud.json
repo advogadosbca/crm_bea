@@ -220,7 +220,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ numero: $json.numero, movimento: $json.movimento }) }}",
+        "jsonBody": "={{ JSON.stringify({ rowId: $json.rowId, numero: $json.numero, movimento: $json.movimento }) }}",
         "options": {
           "batching": {
             "batch": {

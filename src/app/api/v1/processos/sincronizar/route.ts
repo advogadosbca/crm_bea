@@ -39,9 +39,28 @@ export async function POST(req: Request) {
   if (!cols) return Response.json({ error: 'Fonte "Processos Judiciais" não encontrada.' }, { status: 404 })
   if (!cols.movimento) return Response.json({ error: 'Coluna "Atualização JusBR" não existe.' }, { status: 409 })
 
-  // localiza pelo número normalizado (a base tem o número formatado)
-  const { data: rows } = await admin.from('db_rows').select('id, data').eq('table_id', cols.tableId)
-  const alvo = (rows || []).find(r => soDigitos((r.data as Record<string, unknown>)[cols.numero]) === digitos)
+  // Caminho rápido: o GET /processos já devolve o rowId, então a busca é por
+  // chave primária. Sem isso seria preciso baixar as ~390 linhas da fonte a cada
+  // chamada — o que degrada rápido quando o n8n dispara vários processos juntos.
+  let alvo: { id: string; data: Record<string, unknown> } | null = null
+
+  if (typeof body.rowId === 'string' && body.rowId) {
+    const { data } = await admin.from('db_rows').select('id, data, table_id').eq('id', body.rowId).maybeSingle()
+    // confere que a linha é mesmo da fonte de processos deste workspace
+    if (data && data.table_id === cols.tableId
+        && soDigitos((data.data as Record<string, unknown>)[cols.numero]) === digitos) {
+      alvo = { id: data.id, data: data.data as Record<string, unknown> }
+    }
+  }
+
+  // Sem rowId (ou rowId que não confere): procura pelo número normalizado,
+  // porque a base guarda o número formatado.
+  if (!alvo) {
+    const { data: rows } = await admin.from('db_rows').select('id, data').eq('table_id', cols.tableId)
+    const achado = (rows || []).find(r => soDigitos((r.data as Record<string, unknown>)[cols.numero]) === digitos)
+    if (achado) alvo = { id: achado.id, data: achado.data as Record<string, unknown> }
+  }
+
   if (!alvo) return Response.json({ status: 'nao_encontrado', numero: body.numero })
 
   const atual = alvo.data as Record<string, unknown>
