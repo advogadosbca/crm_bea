@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   const mov = body.movimento || {}
-  const descricao = descreverMovimento(mov.nome, mov.complementosTabelados)
+  const descricao = descreverMovimento(mov.nome, mov.complementosTabelados, mov.instancia)
   const dataMov = soData(mov.dataHora)
   if (!descricao || !dataMov) {
     return Response.json({ error: 'movimento incompleto: exige nome e dataHora' }, { status: 400 })

@@ -37,12 +37,17 @@ export async function colunasProcessos(admin: SupabaseClient, workspaceId: strin
  * O `nome` sozinho costuma ser vago ("Documento"); o sentido está no complemento
  * ("convertido em diligência"), então os dois são juntados.
  */
-export function descreverMovimento(nome: unknown, complementos: unknown): string {
+export function descreverMovimento(nome: unknown, complementos: unknown, instancia?: unknown): string {
   const base = textoDe(nome).trim()
   const extras = Array.isArray(complementos)
     ? complementos.map(c => textoDe((c as Record<string, unknown>)?.nome).trim()).filter(Boolean)
     : []
-  return extras.length ? `${base} — ${extras.join(', ')}` : base
+  const texto = extras.length ? `${base} — ${extras.join(', ')}` : base
+
+  // O mesmo processo pode ter andamento em 1ª e 2ª instância; sem dizer de onde
+  // veio, "Outras Decisões" não informa nada.
+  const inst = textoDe(instancia).trim()
+  return inst ? `[${inst}] ${texto}` : texto
 }
 
 /** só a parte da data (YYYY-MM-DD), que é o formato das colunas de data do sistema */
