@@ -16,6 +16,8 @@ import { Cell } from './Cell'
 import { RecordPanel } from './RecordPanel'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { Aviso, useAviso } from '@/components/ui/Aviso'
+import { disparaPromocao, promoverLead } from '@/lib/promover-lead'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
   Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2, Lock,
@@ -45,6 +47,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const { msg, mostrar } = useAviso()
   const [columns, setColumns] = useState<DBColumn[]>(initialColumns)
   const [rows, setRows] = useState<DBRow[]>(initialRows)
   const [menuCol, setMenuCol] = useState<string | null>(null)
@@ -175,6 +178,12 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     const data = { ...row.data, [colId]: value }
     setRows(rs => rs.map(r => r.id === rowId ? { ...r, data, updated_at: new Date().toISOString(), updated_by: userId } : r))
     await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: new Date().toISOString() }).eq('id', rowId)
+
+    // marcou "Contrato Assinado" num lead: cria/vincula o cliente
+    if (disparaPromocao(columns.find(c => c.id === colId), value)) {
+      const r = await promoverLead(rowId)
+      if (r) { mostrar(r); router.refresh() }
+    }
   }
   async function updateColumnOptions(colId: string, options: SelectOption[]) {
     const col = columns.find(c => c.id === colId)!
@@ -195,6 +204,13 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     // se a fonte for a própria tabela ativa, reflete também na grade
     if (sourceId === tableId) setRows(rs => rs.map(r => r.id === rowId ? { ...r, data, updated_at: now, updated_by: userId } : r))
     await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: now }).eq('id', rowId)
+
+    // o painel de registro também pode marcar o gatilho, e aqui as colunas são as da fonte
+    const colsFonte = sourceId === tableId ? columns : (sources.find(s => s.id === sourceId)?.columns || [])
+    if (disparaPromocao(colsFonte.find(c => c.id === colId), value)) {
+      const res = await promoverLead(rowId)
+      if (res) { mostrar(res); router.refresh() }
+    }
   }
   async function saveSourceOptions(sourceId: string, colId: string, options: SelectOption[]) {
     const col = sourceId === tableId
@@ -416,6 +432,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 
   return (
     <div onMouseDownCapture={() => { undoOwner = uid.current }}>
+      <Aviso msg={msg} onClose={() => mostrar(null)} />
       <ScrollX className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>

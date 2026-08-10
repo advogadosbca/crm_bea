@@ -19,6 +19,8 @@ import { RecordComments } from './RecordComments'
 import { RecordTasks } from '@/components/board/RecordTasks'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { Aviso, useAviso } from '@/components/ui/Aviso'
+import { disparaPromocao, promoverLead } from '@/lib/promover-lead'
 import { TypeIcon } from './TypePicker'
 import { COLUMN_TYPES } from '@/types/dynamic'
 import {
@@ -191,6 +193,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const { msg, mostrar } = useAviso()
   const [columns, setColumns] = useState(initialColumns)
   const [rows, setRows] = useState(initialRows)
   const [views, setViews] = useState<DBView[]>(initialViews.length ? initialViews : [{ id: tableId, name: 'Tabela', type: 'table', position: 0 }])
@@ -314,6 +317,12 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
     const data = { ...row.data, [colId]: value }
     setRows(rs => rs.map(r => r.id === rowId ? { ...r, data, updated_at: new Date().toISOString(), updated_by: userId } : r))
     await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: new Date().toISOString() }).eq('id', rowId)
+
+    // marcou "Contrato Assinado" num lead: cria/vincula o cliente
+    if (disparaPromocao(columns.find(c => c.id === colId), value)) {
+      const r = await promoverLead(rowId)
+      if (r) { mostrar(r); router.refresh() }
+    }
   }
   async function updateColumnOptions(colId: string, options: SelectOption[]) {
     const col = columns.find(c => c.id === colId)!
@@ -398,6 +407,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
 
   return (
     <div>
+      <Aviso msg={msg} onClose={() => mostrar(null)} />
       {/* Barra de visualizações */}
       <div className="flex items-center gap-1 mb-4 border-b pb-2 relative" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
         {views.map(v => {
@@ -748,6 +758,7 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const { msg, mostrar } = useAviso()
   const [nested, setNested] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const titleCol = [...columns].sort((a, b) => a.position - b.position).find(c => c.type === 'text') || columns[0]
   const fieldCols = columns.filter(c => c !== titleCol).sort((a, b) => a.position - b.position)
@@ -759,8 +770,15 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
   }
   // edição no painel de relação aninhado (ex.: clicar no Contato abre a ficha do contato)
   async function saveNestedField(sourceId: string, rowId: string, colId: string, value: unknown) {
-    const r = sources.find(s => s.id === sourceId)?.rows.find(x => x.id === rowId)
+    const fonte = sources.find(s => s.id === sourceId)
+    const r = fonte?.rows.find(x => x.id === rowId)
     await supabase.from('db_rows').update({ data: { ...(r?.data || {}), [colId]: value } }).eq('id', rowId)
+
+    // o painel de registro também pode marcar o gatilho
+    if (disparaPromocao(fonte?.columns.find(c => c.id === colId), value)) {
+      const res = await promoverLead(rowId)
+      if (res) mostrar(res)
+    }
     router.refresh()
   }
   async function saveNestedOptions(sourceId: string, colId: string, options: SelectOption[]) {
@@ -771,6 +789,7 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <Aviso msg={msg} onClose={() => mostrar(null)} />
       <div className="w-full max-w-xl h-full overflow-y-auto animate-slide-in" style={{ background: 'var(--notion-bg)', borderLeft: '1px solid var(--notion-border)' }}>
         <div className="flex items-center justify-between px-6 py-3 sticky top-0 z-10" style={{ background: 'var(--notion-bg)', borderBottom: '1px solid var(--notion-border)' }}>
           <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Registro</span>
