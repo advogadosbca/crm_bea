@@ -51,3 +51,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# dumps de dados de producao gerados por scripts de migracao
+backup-*.json
+*.sql
+!supabase-schema.sql
+!sql/*.sql
