@@ -1,5 +1,5 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
-import { colunasProcessos, textoDe } from '@/lib/processos-sync'
+import { cnjsDaCelula, colunasProcessos, textoDe } from '@/lib/processos-sync'
 
 /**
  * GET /api/v1/processos
@@ -19,15 +19,21 @@ export async function GET(req: Request) {
   const processos = (rows || [])
     .map(r => {
       const d = r.data as Record<string, unknown>
+      const cnjs = cnjsDaCelula(d[cols.numero])
       return {
         rowId: r.id,
-        numero: textoDe(d[cols.numero]),
+        // o CNJ extraído é o que vai para o DataJud; o texto original fica junto
+        // para conferência quando a célula tem anotação
+        numero: cnjs[0] || '',
+        numeroNaTabela: textoDe(d[cols.numero]),
+        outrosNumerosNaCelula: cnjs.slice(1),
         ultimaMovimentacao: cols.movimento ? textoDe(d[cols.movimento]) : '',
         dataMovimentacao: cols.dataMovimento ? textoDe(d[cols.dataMovimento]) : '',
         consultadoEm: cols.consultadoEm ? textoDe(d[cols.consultadoEm]) : '',
       }
     })
-    .filter(p => p.numero.replace(/\D/g, '').length === 20)
+    .filter(p => p.numero)
 
-  return Response.json({ total: processos.length, processos })
+  const comExtras = processos.filter(p => p.outrosNumerosNaCelula.length).length
+  return Response.json({ total: processos.length, comMaisDeUmNumeroNaCelula: comExtras, processos })
 }

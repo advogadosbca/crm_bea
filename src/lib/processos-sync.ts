@@ -50,3 +50,20 @@ export const soData = (iso: unknown): string => textoDe(iso).split('T')[0]
 
 /** dígitos do número CNJ, para comparar formatos diferentes do mesmo processo */
 export const soDigitos = (v: unknown): string => textoDe(v).replace(/\D/g, '')
+
+// NNNNNNN-DD.AAAA.J.TR.OOOO, com ou sem pontuação
+const RE_CNJ = /\d{7}-?\d{2}\.?\d{4}\.?\d\.?\d{2}\.?\d{4}/g
+
+/**
+ * Extrai os números CNJ de uma célula. O campo é texto livre e na prática vem
+ * com anotação junto ("5000977-95.2025.8.13.0452 (TJMG - 1.0000.25.074486-9/001)")
+ * ou com mais de um processo separado por "//". Exigir a célula inteira limpa
+ * deixaria esses de fora.
+ */
+export function cnjsDaCelula(v: unknown): string[] {
+  const achados = textoDe(v).match(RE_CNJ) || []
+  return [...new Set(achados.map(soDigitos).filter(d => d.length === 20))]
+}
+
+/** o primeiro CNJ da célula, que é o processo principal daquela linha */
+export const cnjPrincipal = (v: unknown): string => cnjsDaCelula(v)[0] || ''

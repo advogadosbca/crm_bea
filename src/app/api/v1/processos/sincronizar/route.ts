@@ -1,5 +1,5 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
-import { colunasProcessos, descreverMovimento, soData, soDigitos, textoDe } from '@/lib/processos-sync'
+import { cnjsDaCelula, colunasProcessos, descreverMovimento, soData, soDigitos, textoDe } from '@/lib/processos-sync'
 
 /**
  * POST /api/v1/processos/sincronizar
@@ -48,16 +48,17 @@ export async function POST(req: Request) {
     const { data } = await admin.from('db_rows').select('id, data, table_id').eq('id', body.rowId).maybeSingle()
     // confere que a linha é mesmo da fonte de processos deste workspace
     if (data && data.table_id === cols.tableId
-        && soDigitos((data.data as Record<string, unknown>)[cols.numero]) === digitos) {
+        && cnjsDaCelula((data.data as Record<string, unknown>)[cols.numero]).includes(digitos)) {
       alvo = { id: data.id, data: data.data as Record<string, unknown> }
     }
   }
 
-  // Sem rowId (ou rowId que não confere): procura pelo número normalizado,
-  // porque a base guarda o número formatado.
+  // Sem rowId (ou rowId que não confere): procura pelo número. A comparação é
+  // sobre os CNJ extraídos da célula, não sobre todos os dígitos dela, porque o
+  // campo é texto livre e costuma ter anotação junto.
   if (!alvo) {
     const { data: rows } = await admin.from('db_rows').select('id, data').eq('table_id', cols.tableId)
-    const achado = (rows || []).find(r => soDigitos((r.data as Record<string, unknown>)[cols.numero]) === digitos)
+    const achado = (rows || []).find(r => cnjsDaCelula((r.data as Record<string, unknown>)[cols.numero]).includes(digitos))
     if (achado) alvo = { id: achado.id, data: achado.data as Record<string, unknown> }
   }
 
