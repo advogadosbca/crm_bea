@@ -29,6 +29,8 @@ export async function colunasProcessos(admin: SupabaseClient, workspaceId: strin
 
   const { data: cols } = await admin.from('db_columns').select('id, name').eq('table_id', tabela.id)
   const id = (nome: string) => (cols || []).find(c => c.name === nome)?.id as string | undefined
+  /** primeiro nome que existir — a coluna pode ter sido criada com outro rótulo */
+  const idAlgum = (...nomes: string[]) => nomes.map(id).find(Boolean)
 
   const numero = id('Processo')
   if (!numero) return null
@@ -36,10 +38,11 @@ export async function colunasProcessos(admin: SupabaseClient, workspaceId: strin
   return {
     tableId: tabela.id,
     numero,
-    movimento: id('Atualização JusBR'),
+    movimento: idAlgum('Atualização JusBR', 'Atualização DataJud'),
     dataMovimento: id('Data da movimentação'),
     consultadoEm: id('Consultado em'),
-    publicacao: id('Publicação (DJEN)'),
+    // "Atualização Comunica" é o nome usado no CRM; o outro fica como alternativa
+    publicacao: idAlgum('Atualização Comunica', 'Publicação (DJEN)'),
     dataPublicacao: id('Data da publicação'),
   }
 }
