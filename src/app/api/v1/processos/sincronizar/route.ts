@@ -1,5 +1,8 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
-import { cnjsDaCelula, colunasProcessos, descreverMovimento, soData, soDigitos, textoDe } from '@/lib/processos-sync'
+import {
+  CAMPOS_DA_FONTE, cnjsDaCelula, colunasProcessos, descreverMovimento,
+  limparPublicacao, soData, soDigitos, textoDe, type Fonte,
+} from '@/lib/processos-sync'
 
 /**
  * POST /api/v1/processos/sincronizar
@@ -28,16 +31,44 @@ export async function POST(req: Request) {
     return Response.json({ error: 'numero inválido: esperado número CNJ com 20 dígitos' }, { status: 400 })
   }
 
-  const mov = body.movimento || {}
-  const descricao = descreverMovimento(mov.nome, mov.complementosTabelados, mov.instancia)
-  const dataMov = soData(mov.dataHora)
-  if (!descricao || !dataMov) {
-    return Response.json({ error: 'movimento incompleto: exige nome e dataHora' }, { status: 400 })
+  // duas fontes gratuitas, cada uma no seu par de colunas:
+  //   datajud -> "Atualização JusBR"  + "Data da movimentação"   (movimento processual)
+  //   djen    -> "Publicação (DJEN)"  + "Data da publicação"     (intimação publicada)
+  // 'fonte' ausente = datajud (compatível com quem já chama). Valor desconhecido
+  // é erro explícito: cair no padrão em silêncio esconderia typo no fluxo e
+  // gravaria publicação em cima da movimentação.
+  if (body.fonte !== undefined && body.fonte !== 'datajud' && body.fonte !== 'djen') {
+    return Response.json({ error: `fonte inválida: "${body.fonte}". Use "datajud" ou "djen".` }, { status: 400 })
+  }
+  const fonte: Fonte = body.fonte === 'djen' ? 'djen' : 'datajud'
+
+  let descricao = ''
+  let dataEvento = ''
+  if (fonte === 'djen') {
+    const pub = body.publicacao || {}
+    const cabecalho = [pub.tipo, pub.orgao].filter(Boolean).join(' · ')
+    const corpo = limparPublicacao(pub.texto)
+    descricao = cabecalho ? `[${cabecalho}] ${corpo}` : corpo
+    dataEvento = soData(pub.data)
+    if (!corpo || !dataEvento) {
+      return Response.json({ error: 'publicacao incompleta: exige texto e data' }, { status: 400 })
+    }
+  } else {
+    const mov = body.movimento || {}
+    descricao = descreverMovimento(mov.nome, mov.complementosTabelados, mov.instancia)
+    dataEvento = soData(mov.dataHora)
+    if (!descricao || !dataEvento) {
+      return Response.json({ error: 'movimento incompleto: exige nome e dataHora' }, { status: 400 })
+    }
   }
 
   const cols = await colunasProcessos(admin, workspaceId)
   if (!cols) return Response.json({ error: 'Fonte "Processos Judiciais" não encontrada.' }, { status: 404 })
-  if (!cols.movimento) return Response.json({ error: 'Coluna "Atualização JusBR" não existe.' }, { status: 409 })
+
+  const campos = CAMPOS_DA_FONTE[fonte]
+  const colTexto = cols[campos.texto] as string | undefined
+  const colData = cols[campos.data] as string | undefined
+  if (!colTexto) return Response.json({ error: `Coluna de destino da fonte "${fonte}" não existe.` }, { status: 409 })
 
   // Caminho rápido: o GET /processos já devolve o rowId, então a busca é por
   // chave primária. Sem isso seria preciso baixar as ~390 linhas da fonte a cada
@@ -65,8 +96,8 @@ export async function POST(req: Request) {
   if (!alvo) return Response.json({ status: 'nao_encontrado', numero: body.numero })
 
   const atual = alvo.data as Record<string, unknown>
-  const mesmaDescricao = textoDe(atual[cols.movimento]).trim() === descricao.trim()
-  const mesmaData = cols.dataMovimento ? soData(atual[cols.dataMovimento]) === dataMov : true
+  const mesmaDescricao = textoDe(atual[colTexto]).trim() === descricao.trim()
+  const mesmaData = colData ? soData(atual[colData]) === dataEvento : true
   const hoje = new Date().toISOString().split('T')[0]
 
   if (mesmaDescricao && mesmaData) {
@@ -74,11 +105,11 @@ export async function POST(req: Request) {
     if (cols.consultadoEm) {
       await admin.from('db_rows').update({ data: { ...atual, [cols.consultadoEm]: hoje } }).eq('id', alvo.id)
     }
-    return Response.json({ status: 'sem_mudanca', rowId: alvo.id })
+    return Response.json({ status: 'sem_mudanca', fonte, rowId: alvo.id })
   }
 
-  const novo: Record<string, unknown> = { ...atual, [cols.movimento]: descricao }
-  if (cols.dataMovimento) novo[cols.dataMovimento] = dataMov
+  const novo: Record<string, unknown> = { ...atual, [colTexto]: descricao }
+  if (colData) novo[colData] = dataEvento
   if (cols.consultadoEm) novo[cols.consultadoEm] = hoje
 
   const { error } = await admin.from('db_rows')
@@ -87,10 +118,11 @@ export async function POST(req: Request) {
 
   return Response.json({
     status: 'atualizado',
+    fonte,
     rowId: alvo.id,
-    anterior: textoDe(atual[cols.movimento]) || null,
+    anterior: textoDe(atual[colTexto]) || null,
     movimentacao: descricao,
-    dataMovimentacao: dataMov,
+    dataMovimentacao: dataEvento,
     consultadoEm: hoje,
   })
 }

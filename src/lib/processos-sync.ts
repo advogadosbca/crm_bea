@@ -7,6 +7,16 @@ export type ColsProcessos = {
   movimento?: string
   dataMovimento?: string
   consultadoEm?: string
+  publicacao?: string
+  dataPublicacao?: string
+}
+
+/** As duas fontes gratuitas escrevem em pares de colunas diferentes. */
+export type Fonte = 'datajud' | 'djen'
+
+export const CAMPOS_DA_FONTE: Record<Fonte, { texto: keyof ColsProcessos; data: keyof ColsProcessos }> = {
+  datajud: { texto: 'movimento', data: 'dataMovimento' },
+  djen: { texto: 'publicacao', data: 'dataPublicacao' },
 }
 
 export const textoDe = (v: unknown): string => (v === null || v === undefined ? '' : String(v))
@@ -29,7 +39,24 @@ export async function colunasProcessos(admin: SupabaseClient, workspaceId: strin
     movimento: id('Atualização JusBR'),
     dataMovimento: id('Data da movimentação'),
     consultadoEm: id('Consultado em'),
+    publicacao: id('Publicação (DJEN)'),
+    dataPublicacao: id('Data da publicação'),
   }
+}
+
+/**
+ * Texto do DJEN: tira HTML (7 de 24 publicações vinham com tags), normaliza
+ * espaço e corta. A mediana é 211 caracteres, mas há publicação de 6.400 —
+ * inteira não cabe numa célula de tabela, e o link para o documento fica junto.
+ */
+export function limparPublicacao(texto: unknown, limite = 600): string {
+  const limpo = textoDe(texto)
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return limpo.length > limite ? limpo.slice(0, limite - 1).trimEnd() + '…' : limpo
 }
 
 /**
