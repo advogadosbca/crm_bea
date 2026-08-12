@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { User as UserIcon, MoreHorizontal, Plus, Check, Trash2, Pencil, Copy } from 'lucide-react'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
 
 type ContactRow = Contact & { responsavel?: { full_name: string; avatar_url?: string } | null }
@@ -182,8 +183,9 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
               )}
             </div>
 
-            {/* Cards */}
-            <div className="space-y-2 min-h-[40px] flex-1">
+            {/* Cards — só esta pilha rola; cabeçalho e "Nova página" ficam parados */}
+            <div className="space-y-2 min-h-[40px] overflow-y-auto overscroll-contain pr-0.5"
+              style={{ maxHeight: ALTURA_MAX_COLUNA }}>
               {items.map(c => (
                 <div key={c.id} draggable
                   onDragStart={() => setDragId(c.id)}

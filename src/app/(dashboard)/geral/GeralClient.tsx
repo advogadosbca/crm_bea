@@ -16,10 +16,12 @@ import { KanbanBoard, KanbanColumn } from '@/components/ui/KanbanBoard'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
 import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
-import { PendenciasResumo, type PendenciaResumo } from './PendenciasResumo'
 import { DBColumn, DBRow, DataSource } from '@/types/dynamic'
 
 type DynTable = { tableId: string; columns: DBColumn[]; rows: DBRow[] } | null
+
+/** id da coluna pelo nome — o quadro precisa saber por qual status agrupar */
+const colId = (t: DynTable, nome: string) => t?.columns.find(c => c.name === nome)?.id
 
 type ContactRow = Contact & { responsavel?: { full_name: string; avatar_url?: string } | null }
 
@@ -32,9 +34,7 @@ interface Props {
   headerAssets: HeaderAssets
   kanbanColumns: { funil: KanbanColumn[]; negociacao: KanbanColumn[]; acoes: KanbanColumn[] }
   board: { lists: BList[]; cards: BCard[]; labels: BLabel[] }
-  geralTables: { alerta: DynTable; prazos: DynTable; sources: DataSource[] }
-  /** pendências em aberto, resolvidas no servidor — as mesmas linhas de /pendencias */
-  pendencias: PendenciaResumo[]
+  geralTables: { alerta: DynTable; prazos: DynTable; pendencias: DynTable; sources: DataSource[] }
   shortcuts: { contatosId: string; leadsId: string }
   leadsBoard?: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null
   /** ?card=<id>: cartão a abrir direto no Quadro de Tarefas (link vindo do painel do cliente) */
@@ -53,7 +53,7 @@ function Tag({ label, color }: { label: string; color: string }) {
   )
 }
 
-export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, pendencias, shortcuts, leadsBoard, openCardId }: Props) {
+export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard, openCardId }: Props) {
   const canEditBoard = headerAssets.canEdit
   const leadColId = (name: string) => leadsBoard?.columns.find(c => c.name === name)?.id
 
@@ -247,20 +247,38 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
               </div>
             </div>
 
+            {/* Os dois blocos são quadros, agrupados pela coluna de status da
+                própria fonte. Cada coluna tem teto de altura e rola por dentro
+                (ALTURA_MAX_COLUNA), então nenhum quadro estica a página. */}
             <section>
               <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
                 <AlertTriangle className="w-4 h-4" style={{ color: '#F59E0B' }} /> Alerta — Alta Prioridade
               </h2>
               {geralTables.alerta ? (
-                <DynamicTable key={geralTables.alerta.tableId} tableId={geralTables.alerta.tableId}
+                <DynamicBoard key={geralTables.alerta.tableId + '-alerta'} tableId={geralTables.alerta.tableId}
                   initialColumns={geralTables.alerta.columns} initialRows={geralTables.alerta.rows}
-                  sources={geralTables.sources} members={members} userId={userId} />
+                  sources={geralTables.sources} members={members} userId={userId}
+                  groupColId={colId(geralTables.alerta, 'Status Geral')}
+                  views={[{ id: 'alerta-quadro', name: 'Alerta', type: 'board', position: 0 }]} />
               ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
             </section>
+
             {/* Ocupou o lugar de "Prazos Vencidos", que estava sem nenhuma linha
                 desde sempre. A fonte geral-prazos continua existindo e segue
-                acessível em /tabelas — só saiu daqui. */}
-            <PendenciasResumo pendencias={pendencias} membros={members} userId={userId} />
+                acessível em /tabelas — só saiu daqui. São as MESMAS linhas de
+                /pendencias: o quadro aqui e o de lá editam o mesmo registro. */}
+            <section>
+              <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
+                <Clock className="w-4 h-4" style={{ color: '#EF4444' }} /> Pendências Processuais
+              </h2>
+              {geralTables.pendencias ? (
+                <DynamicBoard key={geralTables.pendencias.tableId + '-pend'} tableId={geralTables.pendencias.tableId}
+                  initialColumns={geralTables.pendencias.columns} initialRows={geralTables.pendencias.rows}
+                  sources={geralTables.sources} members={members} userId={userId}
+                  groupColId={colId(geralTables.pendencias, 'Status')}
+                  views={[{ id: 'pend-quadro', name: 'Pendências', type: 'board', position: 0 }]} />
+              ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
+            </section>
 
             {/* Quadro estilo Trello */}
             <section>

@@ -8,6 +8,7 @@ import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
 import { initials, personColor } from '@/lib/people'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -266,9 +267,9 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
               onDragOver={e => { e.preventDefault(); setOverList(list.id) }}
               onDragLeave={() => setOverList(o => o === list.id ? null : o)}
               onDrop={() => moveTo(list.id)}
-              className="flex-shrink-0 w-64 rounded-xl p-2 transition-colors"
+              className="flex-shrink-0 w-64 rounded-xl p-2 transition-colors flex flex-col"
               style={{ background: overList === list.id ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
-              <div className="flex items-center gap-2 px-1.5 py-1 mb-2 relative">
+              <div className="flex items-center gap-2 px-1.5 py-1 mb-2 relative flex-shrink-0">
                 <input defaultValue={list.title} onBlur={e => renameList(list.id, e.target.value.trim() || list.title)}
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                   className="flex-1 bg-transparent text-sm font-semibold outline-none" style={{ color: 'var(--notion-text)' }} />
@@ -286,7 +287,9 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                 )}
               </div>
 
-              <div className="space-y-2">
+              {/* só a pilha de cards rola; o cabeçalho da lista fica parado */}
+              <div className="space-y-2 overflow-y-auto overscroll-contain pr-0.5"
+                style={{ maxHeight: ALTURA_MAX_COLUNA }}>
                 {listCards.map(card => {
                   const atraso = diasDeAtraso(card)
                   const corAtraso = atraso !== null ? corDoAtraso(atraso) : null

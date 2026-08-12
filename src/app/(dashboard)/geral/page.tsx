@@ -1,6 +1,5 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { GeralClient } from './GeralClient'
-import type { PendenciaResumo } from './PendenciasResumo'
 import { DBColumn, DBRow, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 
 export default async function GeralPage({ searchParams }: {
@@ -50,44 +49,13 @@ export default async function GeralPage({ searchParams }: {
     const t = (dynTables || []).find(x => x.module_key === key)
     return t ? { tableId: t.id, columns: dynCols.filter(c => c.table_id === t.id), rows: dynRows.filter(r => r.table_id === t.id) } : null
   }
-  const geralTables = { alerta: tableOf('geral-alerta'), prazos: tableOf('geral-prazos'), sources: dynSources }
-
-  // Pendências processuais para o bloco da Geral. As linhas são as mesmas de
-  // /pendencias — aqui só se traduz id de coluna e id de opção para texto, para
-  // o componente não precisar conhecer o esquema da fonte.
-  const pend = tableOf('pendencias')
-  const pendencias: PendenciaResumo[] = (() => {
-    if (!pend) return []
-    const col = (nome: string) => pend.columns.find(c => c.name === nome)
-    const cNum = col('Número do Processo'), cStatus = col('Status'), cData = col('Data de Retorno')
-    const cMembros = col('Membros'), cContato = col('Contato'), cPrio = col('Prioridade'), cTipo = col('Tipo de Pendência')
-    // a célula guarda ora o id da opção, ora o rótulo — a leitura aceita os dois
-    const rotulo = (c: DBColumn | undefined, v: unknown) => {
-      if (!c || v == null || v === '') return ''
-      const o = (c.config?.options || []).find(x => x.id === v || x.label === v)
-      return o ? o.label : String(v)
-    }
-    const texto = (c: DBColumn | undefined, v: unknown) => (c && v != null ? String(v) : '')
-
-    return pend.rows
-      .map(r => {
-        const d = r.data as Record<string, unknown>
-        const membros = cMembros && Array.isArray(d[cMembros.id]) ? (d[cMembros.id] as unknown[]).map(String) : []
-        return {
-          rowId: r.id,
-          processo: texto(cNum, d[cNum?.id || '']),
-          tipo: rotulo(cTipo, d[cTipo?.id || '']),
-          status: rotulo(cStatus, d[cStatus?.id || '']),
-          prioridade: rotulo(cPrio, d[cPrio?.id || '']),
-          dataRetorno: (texto(cData, d[cData?.id || '']) || null) as string | null,
-          contato: texto(cContato, d[cContato?.id || '']),
-          membros,
-        }
-      })
-      // o que já foi resolvido não é pendência: some da tela de trabalho e
-      // continua no quadro completo, em /pendencias
-      .filter(p => !['Concluída', 'Arquivada'].includes(p.status))
-  })()
+  const geralTables = {
+    alerta: tableOf('geral-alerta'),
+    prazos: tableOf('geral-prazos'),
+    // as mesmas linhas de /pendencias — o quadro da Geral edita o mesmo registro
+    pendencias: tableOf('pendencias'),
+    sources: dynSources,
+  }
 
   const shortcuts = {
     contatosId: (dynTables || []).find(t => t.module_key === 'fonte-contatos')?.id || '',
@@ -123,7 +91,6 @@ export default async function GeralPage({ searchParams }: {
       kanbanColumns={{ funil: byBoard('funil'), negociacao: byBoard('negociacao'), acoes: byBoard('acoes') }}
       board={{ lists: boardLists || [], cards: boardCards, labels: boardLabels || [] }}
       geralTables={geralTables}
-      pendencias={pendencias}
       shortcuts={shortcuts}
       leadsBoard={leadsBoard}
       openCardId={cardParam}

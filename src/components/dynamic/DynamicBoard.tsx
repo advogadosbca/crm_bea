@@ -13,6 +13,7 @@ import {
   matchesFilters, matchesQuick, quickCount, applySort, rowColor, loadViewConfig, saveViewConfig,
 } from '@/lib/view-config'
 import { DynamicTable } from './DynamicTable'
+import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import { Cell } from './Cell'
 import { RecordPanel as RelationRecordPanel } from './RecordPanel'
 import { RecordComments } from './RecordComments'
@@ -704,13 +705,15 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                 onDragOver={e => { e.preventDefault(); setOverCol(o.id) }}
                 onDragLeave={() => setOverCol(x => x === o.id ? null : x)}
                 onDrop={() => dragId && moveTo(dragId, o.id)}
-                className="flex-shrink-0 w-72 rounded-xl p-2 transition-colors"
+                className="flex-shrink-0 w-72 rounded-xl p-2 transition-colors flex flex-col"
                 style={{ background: overCol === o.id ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
-                <div className="flex items-center gap-2 px-1.5 py-1 mb-2">
+                <div className="flex items-center gap-2 px-1.5 py-1 mb-2 flex-shrink-0">
                   <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: `${o.color}22`, color: o.color }}>{o.label}</span>
                   <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>{cardsHere.length}</span>
                 </div>
-                <div className="space-y-2">
+                {/* só a pilha de cards rola; cabeçalho e "Nova página" ficam parados */}
+                <div className="space-y-2 overflow-y-auto overscroll-contain pr-0.5"
+                  style={{ maxHeight: ALTURA_MAX_COLUNA }}>
                   {cardsHere.map(r => (
                     <div key={r.id} draggable
                       onDragStart={() => setDragId(r.id)} onDragEnd={() => { setDragId(null); setOverCol(null) }}
@@ -736,10 +739,10 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                       )}
                     </div>
                   ))}
-                  <button onClick={() => addCard(o.id)} className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
-                    <Plus className="w-3.5 h-3.5" /> Nova página
-                  </button>
                 </div>
+                <button onClick={() => addCard(o.id)} className="w-full flex items-center gap-1.5 px-2 py-1.5 mt-2 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)] flex-shrink-0" style={{ color: 'var(--notion-text-3)' }}>
+                  <Plus className="w-3.5 h-3.5" /> Nova página
+                </button>
               </div>
             )
           })}
