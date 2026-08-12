@@ -9,7 +9,7 @@ import {
   convertValue, formatNumber, isColumnHidden,
 } from '@/types/dynamic'
 import {
-  FilterCond, SortCond, ColorRule, QuickFilter, matchesFilters, matchesQuick, applySort, rowColor,
+  FilterCond, SortCond, ColorRule, QuickFilter, matchesFilters, matchesQuick, matchCond, applySort, rowColor,
 } from '@/lib/view-config'
 import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
@@ -21,6 +21,7 @@ import { disparaPromocao, promoverLead } from '@/lib/promover-lead'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
   Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2, Lock,
+  Filter, CircleSlash, CircleDot,
 } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -54,6 +55,9 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   const [submenu, setSubmenu] = useState<'none' | 'type' | 'edit' | 'icon'>('none')
   const [renaming, setRenaming] = useState<string | null>(null)
   const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' } | null>(null)
+  // filtro de preenchimento por coluna, ligado pelo menu do cabeçalho: colId -> 'empty' | 'not_empty'.
+  // Vive aqui (e não na config da view) para valer também nas tabelas usadas soltas, fora do DynamicBoard.
+  const [fillFilter, setFillFilter] = useState<Record<string, 'empty' | 'not_empty'>>({})
   const [calc, setCalc] = useState<Record<string, Calc>>({})
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
   const [dragCol, setDragCol] = useState<string | null>(null)
@@ -105,6 +109,10 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     let rs = rows
     if (viewFilters && viewFilters.length) rs = rs.filter(r => matchesFilters(r, columns, viewFilters))
     if (viewQuick) rs = rs.filter(r => matchesQuick(r, columns, viewQuick))
+    // vazio/preenchido por coluna: várias colunas filtradas ao mesmo tempo se cruzam (E).
+    // Coluna que sumiu (excluída/oculta) não derruba a linha — matchCond ignora coluna inexistente.
+    const fills = Object.entries(fillFilter)
+    if (fills.length) rs = rs.filter(r => fills.every(([colId, op]) => matchCond(r, columns.find(c => c.id === colId), op, '')))
     if (viewSearch && viewSearch.trim()) {
       const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
       const needle = nrm(viewSearch)
@@ -122,7 +130,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     }
     const s: SortCond | null = (viewSort ?? null) || (sort ? { colId: sort.col, dir: sort.dir } : null)
     return applySort(rs, columns, s)
-  }, [rows, viewFilters, viewQuick, viewSearch, viewSort, sort, columns])
+  }, [rows, viewFilters, viewQuick, fillFilter, viewSearch, viewSort, sort, columns])
 
   // agrupamento opcional (Agrupar por): monta seções ordenadas pela opção da coluna
   const groupCol = viewGroupColId ? columns.find(c => c.id === viewGroupColId) : null
@@ -468,6 +476,10 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
                       className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-md hover:bg-[var(--notion-bg-2)] transition-colors">
                       <TypeIcon icon={col.config.icon || typeMeta(col.type)?.icon || 'Type'} className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-2)' }} />
                       <span className="text-[13px] font-normal truncate" style={{ color: 'var(--notion-text-2)' }}>{col.name}</span>
+                      {fillFilter[col.id] && (
+                        <Filter className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-accent)' }}
+                          aria-label={fillFilter[col.id] === 'empty' ? 'Mostrando só vazios' : 'Mostrando só preenchidos'} />
+                      )}
                       {col.config.adminOnly && (
                         <Lock className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-accent)' }} aria-label="Somente admins" />
                       )}
@@ -480,6 +492,15 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
                       onRename={() => { setRenaming(col.id); setMenuCol(null) }}
                       onChangeType={to => changeType(col, to)}
                       onSort={dir => { setSort({ col: col.id, dir }); setMenuCol(null) }}
+                      fillMode={fillFilter[col.id]}
+                      onSetFillMode={mode => {
+                        setFillFilter(f => {
+                          const next = { ...f }
+                          if (mode) next[col.id] = mode; else delete next[col.id]
+                          return next
+                        })
+                        setMenuCol(null)
+                      }}
                       onHide={() => hideColumn(col.id)}
                       onInsertLeft={() => { addColumn('text', col.position); setMenuCol(null) }}
                       onInsertRight={() => { addColumn('text', col.position + 1); setMenuCol(null) }}
@@ -541,6 +562,20 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 
       <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: 'var(--notion-text-3)' }}>
         <span>Contagem {displayRows.length}</span>
+        {Object.entries(fillFilter).map(([colId, mode]) => {
+          const c = columns.find(x => x.id === colId)
+          if (!c) return null
+          return (
+            <button key={colId} onClick={() => setFillFilter(f => { const n = { ...f }; delete n[colId]; return n })}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--notion-bg-3)]"
+              style={{ color: 'var(--notion-accent)', border: '1px solid var(--notion-border)' }}
+              title="Remover este filtro">
+              <Filter className="w-3 h-3" />
+              {c.name}: {mode === 'empty' ? 'vazios' : 'preenchidos'}
+              <X className="w-3 h-3" />
+            </button>
+          )
+        })}
         {sort && <button onClick={() => setSort(null)} className="hover:text-[var(--notion-text-2)]">Limpar ordenação</button>}
         {hiddenCount > 0 && <button onClick={unhideAll} className="hover:text-[var(--notion-text-2)]">Mostrar {hiddenCount} coluna(s) oculta(s)</button>}
         {undoDepth > 0 && (
@@ -568,19 +603,23 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 }
 
 // ---------- Menu de coluna ----------
-function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRename, onChangeType, onSort, onHide, onInsertLeft, onInsertRight, onDuplicate, onDelete, onUpdateOptions, onSetConfig, sources, tableColumns, isAuto, isAdmin }: {
+function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRename, onChangeType, onSort, fillMode, onSetFillMode, onHide, onInsertLeft, onInsertRight, onDuplicate, onDelete, onUpdateOptions, onSetConfig, sources, tableColumns, isAuto, isAdmin }: {
   col: DBColumn; typeLabel: string; pos: { left: number; top: number } | null; onClose: () => void; submenu: 'none' | 'type' | 'edit' | 'icon'
   setSubmenu: (s: 'none' | 'type' | 'edit' | 'icon') => void
   onRename: () => void; onChangeType: (t: ColumnType) => void; onSort: (d: 'asc' | 'desc') => void
+  /** filtro de preenchimento ativo nesta coluna (undefined = sem filtro) */
+  fillMode?: 'empty' | 'not_empty'
+  onSetFillMode: (mode?: 'empty' | 'not_empty') => void
   onHide: () => void; onInsertLeft: () => void; onInsertRight: () => void; onDuplicate: () => void; onDelete: () => void
   onUpdateOptions: (o: SelectOption[]) => void; onSetConfig: (patch: Record<string, unknown>) => void
   sources: DataSource[]; tableColumns: DBColumn[]; isAuto: boolean
   /** só admin vê e liga/desliga a restrição "somente admins" */
   isAdmin: boolean
 }) {
-  const Item = ({ icon: Icon, label, onClick, danger, arrow }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean }) => (
-    <button onClick={onClick} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: danger ? '#F87171' : 'var(--notion-text)' }}>
+  const Item = ({ icon: Icon, label, onClick, danger, arrow, active }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean; active?: boolean }) => (
+    <button onClick={onClick} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: danger ? '#F87171' : active ? 'var(--notion-accent)' : 'var(--notion-text)' }}>
       <Icon className="w-3.5 h-3.5" /> <span className="flex-1 text-left">{label}</span>
+      {active && <Check className="w-3 h-3" strokeWidth={3} />}
       {arrow && <ChevronRight className="w-3 h-3" style={{ color: 'var(--notion-text-3)' }} />}
     </button>
   )
@@ -632,6 +671,11 @@ function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRenam
             <div className="my-1 border-t" style={{ borderColor: 'var(--notion-border)' }} />
             <Item icon={ArrowUpDown} label="Ordenar crescente" onClick={() => onSort('asc')} />
             <Item icon={ArrowUpDown} label="Ordenar decrescente" onClick={() => onSort('desc')} />
+            {/* clicar de novo no modo ativo desliga o filtro — evita ter que caçar um "limpar" */}
+            <Item icon={CircleSlash} label="Mostrar só vazios" active={fillMode === 'empty'}
+              onClick={() => onSetFillMode(fillMode === 'empty' ? undefined : 'empty')} />
+            <Item icon={CircleDot} label="Mostrar só preenchidos" active={fillMode === 'not_empty'}
+              onClick={() => onSetFillMode(fillMode === 'not_empty' ? undefined : 'not_empty')} />
             <Item icon={EyeOff} label="Ocultar coluna" onClick={onHide} />
             <div className="my-1 border-t" style={{ borderColor: 'var(--notion-border)' }} />
             <Item icon={ArrowLeftToLine} label="Inserir à esquerda" onClick={onInsertLeft} />

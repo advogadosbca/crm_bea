@@ -133,6 +133,15 @@ function QuickFilterBar({ columns, quick, onChange, total, shown }: {
                 <div className="fixed inset-0 z-40" onClick={() => setOpen(null)} />
                 <div className="absolute left-0 top-8 z-50 w-56 rounded-lg p-1 shadow-2xl max-h-72 overflow-y-auto"
                   style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                  {/* "(vazio)" entra como mais uma escolha da propriedade: soma (ou) com as etiquetas marcadas */}
+                  <button onClick={() => toggle(col.id, '__empty__')}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]">
+                    <span className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
+                      style={{ background: picked.includes('__empty__') ? 'var(--notion-accent)' : 'transparent', border: picked.includes('__empty__') ? 'none' : '1.5px solid var(--notion-border)' }}>
+                      {picked.includes('__empty__') && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded truncate italic" style={{ color: 'var(--notion-text-3)' }}>(vazio)</span>
+                  </button>
                   {opts.map(o => {
                     const on = picked.includes(o.id)
                     return (
