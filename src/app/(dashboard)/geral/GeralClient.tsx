@@ -16,6 +16,7 @@ import { KanbanBoard, KanbanColumn } from '@/components/ui/KanbanBoard'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
 import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
+import { PendenciasResumo, type PendenciaResumo } from './PendenciasResumo'
 import { DBColumn, DBRow, DataSource } from '@/types/dynamic'
 
 type DynTable = { tableId: string; columns: DBColumn[]; rows: DBRow[] } | null
@@ -32,6 +33,8 @@ interface Props {
   kanbanColumns: { funil: KanbanColumn[]; negociacao: KanbanColumn[]; acoes: KanbanColumn[] }
   board: { lists: BList[]; cards: BCard[]; labels: BLabel[] }
   geralTables: { alerta: DynTable; prazos: DynTable; sources: DataSource[] }
+  /** pendências em aberto, resolvidas no servidor — as mesmas linhas de /pendencias */
+  pendencias: PendenciaResumo[]
   shortcuts: { contatosId: string; leadsId: string }
   leadsBoard?: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null
   /** ?card=<id>: cartão a abrir direto no Quadro de Tarefas (link vindo do painel do cliente) */
@@ -50,7 +53,7 @@ function Tag({ label, color }: { label: string; color: string }) {
   )
 }
 
-export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard, openCardId }: Props) {
+export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, pendencias, shortcuts, leadsBoard, openCardId }: Props) {
   const canEditBoard = headerAssets.canEdit
   const leadColId = (name: string) => leadsBoard?.columns.find(c => c.name === name)?.id
 
@@ -254,16 +257,10 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
                   sources={geralTables.sources} members={members} userId={userId} />
               ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
             </section>
-            <section>
-              <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
-                <Clock className="w-4 h-4" style={{ color: '#EF4444' }} /> Prazos Vencidos
-              </h2>
-              {geralTables.prazos ? (
-                <DynamicTable key={geralTables.prazos.tableId} tableId={geralTables.prazos.tableId}
-                  initialColumns={geralTables.prazos.columns} initialRows={geralTables.prazos.rows}
-                  sources={geralTables.sources} members={members} userId={userId} />
-              ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
-            </section>
+            {/* Ocupou o lugar de "Prazos Vencidos", que estava sem nenhuma linha
+                desde sempre. A fonte geral-prazos continua existindo e segue
+                acessível em /tabelas — só saiu daqui. */}
+            <PendenciasResumo pendencias={pendencias} membros={members} userId={userId} />
 
             {/* Quadro estilo Trello */}
             <section>
