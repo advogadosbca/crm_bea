@@ -1,4 +1,5 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
+import { clientesPorProcesso } from '@/lib/clientes-por-processo'
 import { NovidadesClient, type Comunicacao } from './NovidadesClient'
 
 /**
@@ -25,9 +26,14 @@ export default async function Page() {
       .select('*').neq('status', 'nova').order('aprovada_em', { ascending: false }).limit(60),
   ])
 
+  // nome e telefone resolvidos na hora, só para os processos que estão na tela
+  const cnjs = [...new Set([...(comunicacoes || []), ...(tratadas || [])].map(c => c.cnj as string))]
+  const clientes = await clientesPorProcesso(supabase, profile?.workspace_id || '', cnjs)
+
   return (
     <NovidadesClient
       headerAssets={assets}
+      clientes={clientes}
       novas={(comunicacoes || []) as Comunicacao[]}
       tratadas={(tratadas || []) as Comunicacao[]}
       membros={membros || []}

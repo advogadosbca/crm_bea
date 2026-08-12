@@ -1,6 +1,7 @@
 import { getAuthProfile } from '@/lib/auth'
 import { adminClient } from '@/lib/api-auth'
 import { criarTarefas, formatarCnj, type DadosAprovacao } from '@/lib/novidades'
+import { clientesPorProcesso, telefoneE164, type ClienteDoProcesso } from '@/lib/clientes-por-processo'
 import type { TipoComunicacao } from '@/lib/ia-classificacao'
 
 /**
@@ -66,7 +67,8 @@ export async function POST(req: Request) {
     audienciaHora: d.audienciaHora || null,
   }
 
-  const cliente = await nomeDoCliente(admin, profile.workspace_id, com.cnj as string)
+  const mapa = await clientesPorProcesso(admin, profile.workspace_id, [com.cnj as string])
+  const cliente: ClienteDoProcesso | undefined = mapa[com.cnj as string]
 
   // já aprovada: devolve o que existe em vez de duplicar
   let pendenciaRowId = com.pendencia_row_id as string | null
@@ -74,7 +76,8 @@ export async function POST(req: Request) {
 
   if (!pendenciaRowId) {
     const r = await criarTarefas({
-      admin, workspaceId: profile.workspace_id, cnj: com.cnj as string, cliente, dados,
+      admin, workspaceId: profile.workspace_id, cnj: com.cnj as string,
+      cliente: cliente?.nome || '', dados,
     })
     pendenciaRowId = r.pendenciaRowId
     audienciaRowId = r.audienciaRowId
@@ -108,47 +111,26 @@ export async function POST(req: Request) {
   return Response.json({ ok: true, status: 'aprovada', pendenciaRowId, audienciaRowId, aviso })
 }
 
-/** Nome do cliente ligado ao processo, para a tarefa e para a mensagem. */
-async function nomeDoCliente(admin: ReturnType<typeof adminClient>, workspaceId: string, cnj: string) {
-  const { data: t } = await admin.from('db_tables').select('id')
-    .eq('workspace_id', workspaceId).eq('module_key', 'processos').maybeSingle()
-  if (!t) return ''
-  const { data: cols } = await admin.from('db_columns').select('id, name, type, config').eq('table_id', t.id)
-  const colNum = (cols || []).find(c => c.name === 'Processo')
-  const colCli = (cols || []).find(c => c.name === 'Cliente')
-  if (!colNum || !colCli) return ''
-
-  const { data: rows } = await admin.from('db_rows').select('data').eq('table_id', t.id)
-  const linha = (rows || []).find(r =>
-    String((r.data as Record<string, unknown>)[colNum.id] ?? '').replace(/\D/g, '').includes(cnj))
-  if (!linha) return ''
-
-  const ref = (linha.data as Record<string, unknown>)[colCli.id]
-  const ids = Array.isArray(ref) ? ref.map(String) : ref ? [String(ref)] : []
-  if (!ids.length) return ''
-
-  const fonteId = (colCli.config as { sourceTableId?: string })?.sourceTableId
-  if (!fonteId) return ''
-  const { data: alvo } = await admin.from('db_rows').select('data').eq('id', ids[0]).maybeSingle()
-  if (!alvo) return ''
-  const { data: colsCli } = await admin.from('db_columns').select('id, name').eq('table_id', fonteId)
-  const colNome = (colsCli || []).find(c => c.name === 'Nome')
-  return colNome ? String((alvo.data as Record<string, unknown>)[colNome.id] ?? '') : ''
-}
-
 /**
  * Dispara o webhook do n8n com o aviso ao cliente. O CRM não fala com o
  * WhatsApp direto: manda o payload e o n8n decide o canal.
+ *
+ * O telefone vai junto, cru e em E.164 — sem ele o n8n teria que descobrir o
+ * destinatário sozinho, e é exatamente aí que mensagem vai para o número errado.
+ * Sem telefone no cadastro, não envia: melhor falhar aqui, com a tarefa já
+ * criada, do que disparar para lugar nenhum e marcar como avisado.
  */
 async function avisarCliente(
   admin: ReturnType<typeof adminClient>, workspaceId: string,
-  com: Record<string, unknown>, mensagem: string, cliente: string,
+  com: Record<string, unknown>, mensagem: string, cliente?: ClienteDoProcesso,
 ): Promise<Record<string, unknown>> {
   const { data: cfg } = await admin.from('workspace_secrets')
     .select('webhook_cliente_url').eq('workspace_id', workspaceId).maybeSingle()
   const url = (cfg?.webhook_cliente_url as string) || ''
   if (!url) return { enviado: false, motivo: 'webhook não configurado em Settings → IA' }
   if (!mensagem.trim()) return { enviado: false, motivo: 'mensagem vazia' }
+  if (!cliente?.nome) return { enviado: false, motivo: 'nenhum cliente vinculado a este processo' }
+  if (!cliente.telefone) return { enviado: false, motivo: `cliente ${cliente.nome} está sem telefone no cadastro` }
 
   try {
     const r = await fetch(url, {
@@ -157,7 +139,10 @@ async function avisarCliente(
       body: JSON.stringify({
         comunicacaoId: com.id,
         processo: formatarCnj(String(com.cnj)),
-        cliente,
+        cliente: cliente.nome,
+        telefone: cliente.telefone,
+        telefoneE164: telefoneE164(cliente.telefone),
+        clienteRowId: cliente.clienteRowId,
         mensagem: mensagem.trim(),
         tribunal: com.tribunal,
         orgao: com.orgao,

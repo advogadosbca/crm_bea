@@ -4,8 +4,9 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Bell, Check, X, Loader2, Sparkles, AlertTriangle, CalendarClock, Clock,
-  FileText, ChevronDown, ChevronUp, Filter, Send, Ban,
+  FileText, ChevronDown, ChevronUp, Filter, Send, Ban, User, Phone,
 } from 'lucide-react'
+import type { MapaClientes, ClienteDoProcesso } from '@/lib/clientes-por-processo'
 import { Field, Input, Select } from '@/components/ui/primitives'
 import { EditableHeader, type HeaderAssets } from '@/components/layout/EditableHeader'
 
@@ -71,8 +72,10 @@ const fmtCnj = (d: string) =>
   d?.length === 20 ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}` : d
 const fmtData = (s?: string | null) => (s ? new Date(`${s}T12:00:00Z`).toLocaleDateString('pt-BR') : '—')
 
-export function NovidadesClient({ headerAssets, novas, tratadas, membros, userId, isAdmin }: {
+export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membros, userId, isAdmin }: {
   headerAssets: HeaderAssets
+  /** CNJ -> cliente do processo, resolvido no servidor a cada carga */
+  clientes: MapaClientes
   novas: Comunicacao[]; tratadas: Comunicacao[]; membros: Membro[]; userId: string; isAdmin: boolean
 }) {
   const router = useRouter()
@@ -175,7 +178,7 @@ export function NovidadesClient({ headerAssets, novas, tratadas, membros, userId
 
       <div className="space-y-2">
         {visiveis.map(c => (
-          <Card key={c.id} c={c} membros={membros} userId={userId}
+          <Card key={c.id} c={c} cliente={clientes[c.cnj]} membros={membros} userId={userId}
             aberta={aberta === c.id} onToggle={() => setAberta(a => (a === c.id ? null : c.id))}
             somenteLeitura={aba === 'tratadas'} />
         ))}
@@ -186,8 +189,9 @@ export function NovidadesClient({ headerAssets, novas, tratadas, membros, userId
 }
 
 /* ---------------- Card de uma comunicação ---------------- */
-function Card({ c, membros, userId, aberta, onToggle, somenteLeitura }: {
-  c: Comunicacao; membros: Membro[]; userId: string; aberta: boolean; onToggle: () => void; somenteLeitura: boolean
+function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura }: {
+  c: Comunicacao; cliente?: ClienteDoProcesso; membros: Membro[]; userId: string
+  aberta: boolean; onToggle: () => void; somenteLeitura: boolean
 }) {
   const router = useRouter()
   const cls = c.classificacao
@@ -219,6 +223,11 @@ function Card({ c, membros, userId, aberta, onToggle, somenteLeitura }: {
                 </span>
               )}
               <span className="font-mono text-[11px]" style={{ color: 'var(--notion-text-3)' }}>{fmtCnj(c.cnj)}</span>
+              {cliente?.nome && (
+                <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--notion-text-2)' }}>
+                  <User className="w-2.5 h-2.5" /> {cliente.nome}
+                </span>
+              )}
               {!c.lida_em && !somenteLeitura && (
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--notion-accent)' }} title="não lida" />
               )}
@@ -253,6 +262,38 @@ function Card({ c, membros, userId, aberta, onToggle, somenteLeitura }: {
 
       {aberta && (
         <div className="px-3 pb-3 border-t pt-3" style={{ borderColor: 'var(--notion-border)' }}>
+          {/* ficha do cliente: quem é e por onde falar, sem sair da tela */}
+          <div className="mb-3 flex items-center gap-3 flex-wrap text-xs px-3 py-2 rounded"
+            style={{ background: 'var(--notion-bg)', color: 'var(--notion-text-2)' }}>
+            {cliente?.nome ? (
+              <>
+                <span className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5" style={{ color: 'var(--notion-text-3)' }} />
+                  <b style={{ color: 'var(--notion-text)' }}>{cliente.nome}</b>
+                </span>
+                {cliente.telefone ? (
+                  <a href={`https://wa.me/${telefoneWhats(cliente.telefone)}`} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 hover:underline" style={{ color: 'var(--notion-accent)' }}>
+                    <Phone className="w-3.5 h-3.5" /> {cliente.telefone}
+                  </a>
+                ) : (
+                  <span className="flex items-center gap-1.5" style={{ color: '#FBBF24' }}>
+                    <Phone className="w-3.5 h-3.5" /> sem telefone cadastrado
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="flex items-center gap-1.5" style={{ color: '#FBBF24' }}>
+                <AlertTriangle className="w-3.5 h-3.5" /> Nenhum cliente vinculado a este processo na fonte Processos Judiciais.
+              </span>
+            )}
+            {c.partes?.length > 0 && (
+              <span style={{ color: 'var(--notion-text-3)' }}>
+                parte no processo: {c.partes.map(p => p.nome).join(', ')}
+              </span>
+            )}
+          </div>
+
           {/* trecho citado: o que permite conferir a leitura da IA em segundos */}
           {cls?.trecho && (
             <div className="mb-3 px-3 py-2 rounded text-xs italic"
@@ -289,7 +330,8 @@ function Card({ c, membros, userId, aberta, onToggle, somenteLeitura }: {
               {c.webhook_enviado_em && ' · cliente avisado'}
             </p>
           ) : (
-            <FormularioAprovacao c={c} membros={membros} userId={userId} onPronto={() => router.refresh()} />
+            <FormularioAprovacao c={c} cliente={cliente} membros={membros} userId={userId}
+              onPronto={() => router.refresh()} />
           )}
         </div>
       )}
@@ -302,11 +344,12 @@ function Card({ c, membros, userId, aberta, onToggle, somenteLeitura }: {
  * Formulário PRÉ-PREENCHIDO e editável, não um ✓ cego: a extração da IA erra, e
  * confirmar sem poder corrigir produziria tarefa errada no quadro.
  */
-function FormularioAprovacao({ c, membros, userId, onPronto }: {
-  c: Comunicacao; membros: Membro[]; userId: string; onPronto: () => void
+function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
+  c: Comunicacao; cliente?: ClienteDoProcesso; membros: Membro[]; userId: string; onPronto: () => void
 }) {
   const cls = c.classificacao
   const alvo = cls?.prazo?.fim || cls?.evento_data || null
+  const semTelefone = !cliente?.telefone
 
   const [tipoPendencia, setTipoPendencia] = useState(sugerirPendencia(cls?.tipo))
   const [prioridade, setPrioridade] = useState(sugerirPrioridade(cls?.tipo, alvo))
@@ -315,7 +358,7 @@ function FormularioAprovacao({ c, membros, userId, onPronto }: {
   const [criarAud, setCriarAud] = useState(cls?.tipo === 'audiencia' && !!cls?.evento_data)
   const [audData, setAudData] = useState(cls?.evento_data || '')
   const [avisar, setAvisar] = useState(false)   // sempre desmarcado por padrão
-  const [mensagem, setMensagem] = useState(mensagemPadrao(c, cls))
+  const [mensagem, setMensagem] = useState(mensagemPadrao(c, cls, cliente))
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -399,11 +442,19 @@ function FormularioAprovacao({ c, membros, userId, onPronto }: {
       <div className="rounded-lg p-2.5" style={{ background: 'var(--notion-bg)', border: '1px solid var(--notion-border)' }}>
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--notion-text-2)' }}>
           <input type="checkbox" checked={avisar} onChange={e => setAvisar(e.target.checked)}
-            disabled={!!c.webhook_enviado_em} />
+            disabled={!!c.webhook_enviado_em || semTelefone} />
           <Send className="w-3 h-3" />
           Avisar o cliente
+          {cliente?.telefone && <span style={{ color: 'var(--notion-text-3)' }}>→ {cliente.nome} · {cliente.telefone}</span>}
           {c.webhook_enviado_em && <span style={{ color: 'var(--notion-text-3)' }}>(já avisado)</span>}
-          {!c.webhook_enviado_em && cls?.relevante_para_cliente && (
+          {/* sem número não há para onde mandar — melhor a opção nascer travada
+              do que o envio falhar depois da tarefa já criada */}
+          {semTelefone && !c.webhook_enviado_em && (
+            <span style={{ color: '#FBBF24' }}>
+              {cliente?.nome ? 'sem telefone no cadastro do cliente' : 'sem cliente vinculado ao processo'}
+            </span>
+          )}
+          {!c.webhook_enviado_em && !semTelefone && cls?.relevante_para_cliente && (
             <span className="text-[10px] px-1 rounded" style={{ background: 'rgba(52,211,153,0.15)', color: '#34D399' }}>
               a IA achou relevante para o cliente
             </span>
@@ -454,14 +505,27 @@ function sugerirPrioridade(tipo?: string, alvo?: string | null) {
   return 'Média'
 }
 
+/** Só dígitos com o 55 na frente, para o link do WhatsApp. */
+function telefoneWhats(bruto: string) {
+  const d = (bruto || '').replace(/\D/g, '')
+  if (!d) return ''
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d
+  if (d.length === 10 || d.length === 11) return `55${d}`
+  return d
+}
+
 /** Rascunho da mensagem — o advogado lê e edita antes de qualquer envio. */
-function mensagemPadrao(c: Comunicacao, cls: Classificacao | null) {
+function mensagemPadrao(c: Comunicacao, cls: Classificacao | null, cliente?: ClienteDoProcesso) {
   const proc = fmtCnj(c.cnj)
+  // primeiro nome: "Olá, Lilian!" soa melhor que o nome civil inteiro
+  const nome = cliente?.nome?.trim().split(/\s+/)[0]
+  const ola = nome ? `Olá, ${nome}!` : 'Olá!'
+
   if (cls?.tipo === 'audiencia' && cls.evento_data) {
-    return `Olá! Temos uma novidade no seu processo ${proc}: foi marcada audiência para ${fmtData(cls.evento_data)}${cls.evento_hora ? ` às ${cls.evento_hora}` : ''}. Entraremos em contato para combinar os detalhes.`
+    return `${ola} Temos uma novidade no seu processo ${proc}: foi marcada audiência para ${fmtData(cls.evento_data)}${cls.evento_hora ? ` às ${cls.evento_hora}` : ''}. Entraremos em contato para combinar os detalhes.`
   }
   if (cls?.resumo) {
-    return `Olá! Novidade no seu processo ${proc}: ${cls.resumo} Qualquer dúvida, estamos à disposição.`
+    return `${ola} Novidade no seu processo ${proc}: ${cls.resumo} Qualquer dúvida, estamos à disposição.`
   }
-  return `Olá! Houve uma movimentação no seu processo ${proc} em ${fmtData(c.data_publicacao)}. Nossa equipe está analisando e retorna em breve.`
+  return `${ola} Houve uma movimentação no seu processo ${proc} em ${fmtData(c.data_publicacao)}. Nossa equipe está analisando e retorna em breve.`
 }
