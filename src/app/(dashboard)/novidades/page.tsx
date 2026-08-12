@@ -1,12 +1,16 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
-import { EditableHeader } from '@/components/layout/EditableHeader'
-import { Bell } from 'lucide-react'
 import { NovidadesClient, type Comunicacao } from './NovidadesClient'
 
 /**
  * Central de Novidades: uma linha por comunicação processual, com estado de
  * leitura e aprovação. A leitura passa pela RLS (o membro só vê o próprio
  * workspace); toda escrita vai por /api/novidades/acao.
+ *
+ * O cabeçalho é montado dentro do NovidadesClient, e não aqui: o EditableHeader
+ * é Client Component e recebe o ícone como prop. Componente é função, e função
+ * não atravessa a fronteira servidor→cliente — renderizar daqui derrubava a
+ * página com "Functions cannot be passed directly to Client Components". As
+ * outras telas (GeralClient, SettingsClient) seguem esse mesmo caminho.
  */
 export default async function Page() {
   const { supabase, profile } = await getAuthProfile()
@@ -22,21 +26,13 @@ export default async function Page() {
   ])
 
   return (
-    <div className="min-h-screen">
-      <EditableHeader title="Novidades" icon={Bell} color="#FBBF24"
-        gradient="linear-gradient(135deg, #422006 0%, #713f12 60%, #422006 100%)"
-        pageKey="novidades" workspaceId={assets.workspaceId}
-        initialBanner={assets.banner} initialLogo={assets.logo} canEdit={assets.canEdit} />
-
-      <div className="px-16 py-6">
-        <NovidadesClient
-          novas={(comunicacoes || []) as Comunicacao[]}
-          tratadas={(tratadas || []) as Comunicacao[]}
-          membros={membros || []}
-          userId={profile?.id || ''}
-          isAdmin={isAdmin}
-        />
-      </div>
-    </div>
+    <NovidadesClient
+      headerAssets={assets}
+      novas={(comunicacoes || []) as Comunicacao[]}
+      tratadas={(tratadas || []) as Comunicacao[]}
+      membros={membros || []}
+      userId={profile?.id || ''}
+      isAdmin={isAdmin}
+    />
   )
 }

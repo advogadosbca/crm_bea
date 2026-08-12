@@ -7,6 +7,7 @@ import {
   FileText, ChevronDown, ChevronUp, Filter, Send, Ban,
 } from 'lucide-react'
 import { Field, Input, Select } from '@/components/ui/primitives'
+import { EditableHeader, type HeaderAssets } from '@/components/layout/EditableHeader'
 
 export interface Classificacao {
   acao_necessaria: boolean
@@ -70,7 +71,8 @@ const fmtCnj = (d: string) =>
   d?.length === 20 ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}` : d
 const fmtData = (s?: string | null) => (s ? new Date(`${s}T12:00:00Z`).toLocaleDateString('pt-BR') : '—')
 
-export function NovidadesClient({ novas, tratadas, membros, userId, isAdmin }: {
+export function NovidadesClient({ headerAssets, novas, tratadas, membros, userId, isAdmin }: {
+  headerAssets: HeaderAssets
   novas: Comunicacao[]; tratadas: Comunicacao[]; membros: Membro[]; userId: string; isAdmin: boolean
 }) {
   const router = useRouter()
@@ -120,7 +122,13 @@ export function NovidadesClient({ novas, tratadas, membros, userId, isAdmin }: {
     .filter(c => c.classificacao && !c.classificacao.acao_necessaria).length
 
   return (
-    <div className="max-w-5xl">
+    <div className="min-h-screen">
+      <EditableHeader title="Novidades" icon={Bell} color="#FBBF24"
+        gradient="linear-gradient(135deg, #422006 0%, #713f12 60%, #422006 100%)"
+        pageKey="novidades" workspaceId={headerAssets.workspaceId}
+        initialBanner={headerAssets.banner} initialLogo={headerAssets.logo} canEdit={headerAssets.canEdit} />
+
+      <div className="px-16 py-6 max-w-5xl">
       {/* barra de controle */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <button onClick={() => setSoMinhas(s => !s)}
@@ -171,6 +179,7 @@ export function NovidadesClient({ novas, tratadas, membros, userId, isAdmin }: {
             aberta={aberta === c.id} onToggle={() => setAberta(a => (a === c.id ? null : c.id))}
             somenteLeitura={aba === 'tratadas'} />
         ))}
+      </div>
       </div>
     </div>
   )
