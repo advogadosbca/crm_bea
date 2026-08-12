@@ -1,5 +1,5 @@
 {
-  "name": "CRM - Publicações do DJEN (Comunica CNJ)",
+  "name": "Publicações DJEN → CRM",
   "nodes": [
     {
       "parameters": {
@@ -15,11 +15,8 @@
       "name": "Todo dia 05:30",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        -780,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000001"
+      "position": [-1120, 0],
+      "id": "6e8c4841-ece7-45ec-a4fc-183fe2bf8352"
     },
     {
       "parameters": {
@@ -38,11 +35,8 @@
       "name": "Buscar processos no CRM",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        -560,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000002",
+      "position": [-900, 0],
+      "id": "59782fc6-220b-4979-9e78-4b16722ffb43",
       "retryOnFail": true,
       "maxTries": 3
     },
@@ -54,11 +48,8 @@
       "name": "Um item por processo",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [
-        -350,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000003"
+      "position": [-680, 0],
+      "id": "4d40358d-7b96-429c-9281-d4ee0ebc64d4"
     },
     {
       "parameters": {
@@ -67,11 +58,8 @@
       "name": "Preparar consulta DJEN",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -140,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000004"
+      "position": [-460, 0],
+      "id": "4956f306-eba7-474e-b7e8-7d977aaca481"
     },
     {
       "parameters": {
@@ -85,20 +73,6 @@
             }
           ]
         },
-        "options": {
-          "batching": {
-            "batch": {
-              "batchSize": 10,
-              "batchInterval": 1500
-            }
-          },
-          "timeout": 30000,
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -107,33 +81,39 @@
               "value": "={{ $env.PROXY_TOKEN }}"
             }
           ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 2000
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
         }
       },
       "name": "Consultar DJEN",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        80,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000005",
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 3000,
-      "alwaysOutputData": true
+      "position": [-240, 0],
+      "id": "29faa18a-4e3b-4fe4-844f-cdbe9b82aa43",
+      "alwaysOutputData": true,
+      "notes": "Lote 5 a cada 2s. Com 10/1500ms o CNJ devolve 429 no meio da rodada."
     },
     {
       "parameters": {
-        "jsCode": "// Pega a publicação mais recente de cada processo no DJEN.\n//\n// A API devolve as comunicações sem garantia de ordem, então ordena por\n// data_disponibilizacao. O texto vem com HTML em parte dos casos (7 de 24 numa\n// amostra) — a limpeza final é feita no CRM, aqui só se escolhe qual publicação.\nconst saida = [];\nconst entradas = $input.all();\n\nfor (let i = 0; i < entradas.length; i++) {\n  let origem = {};\n  try { origem = $('Preparar consulta DJEN').itemMatching(i).json; } catch (e) { origem = {}; }\n\n  const corpo = entradas[i].json || {};\n  const itens = Array.isArray(corpo.items) ? corpo.items : [];\n  const numero = origem.numero || itens[0]?.numero_processo || null;\n\n  if (!itens.length) {\n    saida.push({ json: { numero, rowId: origem.rowId, semPublicacao: true } });\n    continue;\n  }\n\n  itens.sort((a, b) => String(b.data_disponibilizacao).localeCompare(String(a.data_disponibilizacao)));\n  const u = itens[0];\n\n  saida.push({\n    json: {\n      numero,\n      rowId: origem.rowId,\n      semPublicacao: false,\n      totalPublicacoes: itens.length,\n      publicacao: {\n        texto: u.texto,\n        data: u.data_disponibilizacao,\n        tipo: u.tipoComunicacao,\n        orgao: u.nomeOrgao,\n        tribunal: u.siglaTribunal,\n        link: u.link\n      }\n    }\n  });\n}\n\nreturn saida;"
+        "jsCode": "// Empacota TODAS as publicações de cada processo para o CRM.\n//\n// Antes este nó escolhia só a mais recente. Como a central de novidades quer\n// uma linha por comunicação, agora vai a lista inteira: o CRM deduplica pelo\n// `id`/`hash` que o próprio DJEN manda, então reenviar é inofensivo.\n//\n// ARMADILHA QUE ESTE NÓ RESOLVE: quando o CNJ responde 429, a ponte devolve\n// `{error, status_origem}` — um corpo sem `items`. Tratar isso como lista\n// vazia classificaria o processo como \"sem publicação\" e o falso negativo\n// passaria batido. Erro agora é erro, e sai separado do vazio legítimo.\nconst saida = [];\nconst entradas = $input.all();\n\nfor (let i = 0; i < entradas.length; i++) {\n  let origem = {};\n  try { origem = $('Preparar consulta DJEN').itemMatching(i).json; } catch (e) { origem = {}; }\n\n  const corpo = entradas[i].json || {};\n  const numero = origem.numero || null;\n\n  if (corpo.error || corpo.status_origem) {\n    saida.push({ json: { numero, rowId: origem.rowId, falhou: true, erro: String(corpo.error || '').slice(0, 200) } });\n    continue;\n  }\n\n  const itens = Array.isArray(corpo.items) ? corpo.items : [];\n  saida.push({\n    json: {\n      numero,\n      rowId: origem.rowId,\n      falhou: false,\n      total: itens.length,\n      // itens crus: o CRM precisa de id, hash, destinatarioadvogados, ativo etc.\n      publicacoes: itens\n    }\n  });\n}\n\nreturn saida;"
       },
-      "name": "Ultima Publicacao",
+      "name": "Empacotar publicacoes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        300,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000006"
+      "position": [-20, 0],
+      "id": "1aabc41e-9fbe-4adb-9a80-e6cd6b9952f9"
     },
     {
       "parameters": {
@@ -146,8 +126,8 @@
           },
           "conditions": [
             {
-              "id": "temPub",
-              "leftValue": "={{ $json.semPublicacao }}",
+              "id": "consultaOk",
+              "leftValue": "={{ $json.falhou }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -160,14 +140,11 @@
         },
         "options": {}
       },
-      "name": "Achou publicacao?",
+      "name": "Consulta funcionou?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [
-        520,
-        0
-      ],
-      "id": "d1000000-0000-4000-8000-000000000007"
+      "position": [200, 0],
+      "id": "467318c8-98b7-4465-b548-432b58cf52a9"
     },
     {
       "parameters": {
@@ -188,11 +165,11 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ fonte: 'djen', rowId: $json.rowId, numero: $json.numero, publicacao: $json.publicacao }) }}",
+        "jsonBody": "={{ JSON.stringify({ fonte: 'djen', rowId: $json.rowId, numero: $json.numero, publicacoes: $json.publicacoes }) }}",
         "options": {
           "batching": {
             "batch": {
-              "batchSize": 20,
+              "batchSize": 10,
               "batchInterval": 500
             }
           },
@@ -200,147 +177,112 @@
             "response": {
               "neverError": true
             }
-          }
-        }
+          },
+          "timeout": 60000
+        },
+        "notes": "Lista vazia é enviada de propósito: o CRM carimba 'Consultado em' mesmo sem publicação."
       },
-      "name": "Gravar no CRM se mudou",
+      "name": "Gravar no CRM",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        750,
-        -110
-      ],
-      "id": "d1000000-0000-4000-8000-000000000008",
+      "position": [420, -100],
+      "id": "5d368904-2118-482c-85ba-289a4ac2fab3",
       "retryOnFail": true,
       "maxTries": 3,
       "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "// Consolida a execução. Quem decide se houve mudança é o CRM.\nconst itens = $input.all().map(i => i.json || {});\nconst conta = s => itens.filter(i => i.status === s).length;\n\nreturn [{\n  json: {\n    quando: new Date().toISOString(),\n    fonte: 'DJEN / Comunica (CNJ)',\n    processados: itens.length,\n    atualizados: conta('atualizado'),\n    sem_mudanca: conta('sem_mudanca'),\n    nao_encontrados_no_crm: conta('nao_encontrado'),\n    com_erro: itens.filter(i => i.error).length,\n    detalhe_atualizados: itens\n      .filter(i => i.status === 'atualizado')\n      .map(i => ({ publicacao: i.movimentacao, data: i.dataMovimentacao, anterior: i.anterior || '(vazio)' }))\n  }\n}];"
+        "method": "POST",
+        "url": "https://crm.bernardeseazevedo.com.br/api/v1/novidades/classificar",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CRM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ limite: 100 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 300000
+        },
+        "notes": "Roda uma vez no fim. Sem chave de IA cadastrada devolve 409 e não quebra o fluxo."
+      },
+      "name": "Classificar novidades",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, -100],
+      "id": "b21f77aa-3f52-4a1e-9d02-6f0f3a3f7c11",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Consolida a execução. Quem decide se houve mudança é o CRM.\nconst itens = $input.all().map(i => i.json || {});\nconst conta = s => itens.filter(i => i.status === s).length;\nconst somaIngestao = itens.reduce((n, i) => n + (i?.ingestao?.inseridas || 0), 0);\n\nreturn [{\n  json: {\n    quando: new Date().toISOString(),\n    fonte: 'DJEN / Comunica (CNJ)',\n    processados: itens.length,\n    comunicacoes_novas: somaIngestao,\n    previa_atualizada: conta('atualizado'),\n    sem_mudanca: conta('sem_mudanca'),\n    sem_publicacao: conta('sem_publicacao'),\n    nao_encontrados_no_crm: conta('nao_encontrado'),\n    com_erro: itens.filter(i => i.error).length\n  }\n}];"
       },
       "name": "Resumo da execucao",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        970,
-        -110
-      ],
-      "id": "d1000000-0000-4000-8000-000000000009"
+      "position": [640, -100],
+      "id": "129aaf1d-1da0-4b1c-8e2a-7fdee02da3e5"
     },
     {
       "parameters": {
-        "jsCode": "// Processo sem nenhuma publicação no DJEN. Pode ser que nada tenha sido\n// publicado ainda, ou que o tribunal não alimente o Diário Nacional.\n// Não é falha do fluxo — fica listado para conferência.\nreturn [{\n  json: {\n    tipo: 'sem publicação no DJEN',\n    quantidade: $input.all().length,\n    numeros: $input.all().map(i => i.json.numero)\n  }\n}];"
+        "jsCode": "// Consulta que NÃO funcionou (timeout, 429 do CNJ, ponte fora do ar).\n// Fica separado do \"sem publicação\" de propósito: aqui não se sabe se havia\n// publicação, então tratar como vazio criaria falso negativo silencioso.\nconst itens = $input.all().map(i => i.json || {});\nreturn [{\n  json: {\n    tipo: 'consulta ao DJEN falhou — reprocessar',\n    quantidade: itens.length,\n    numeros: itens.map(i => i.numero),\n    exemplos_de_erro: [...new Set(itens.map(i => i.erro).filter(Boolean))].slice(0, 5)\n  }\n}];"
       },
-      "name": "Sem publicacao no DJEN",
+      "name": "Falhas na consulta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        750,
-        90
-      ],
-      "id": "d1000000-0000-4000-8000-000000000010"
+      "position": [420, 120],
+      "id": "c4735154-228a-4818-b99c-2cfd9ee2feed"
     }
   ],
   "connections": {
     "Todo dia 05:30": {
-      "main": [
-        [
-          {
-            "node": "Buscar processos no CRM",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Buscar processos no CRM", "type": "main", "index": 0 }]]
     },
     "Buscar processos no CRM": {
-      "main": [
-        [
-          {
-            "node": "Um item por processo",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Um item por processo", "type": "main", "index": 0 }]]
     },
     "Um item por processo": {
-      "main": [
-        [
-          {
-            "node": "Preparar consulta DJEN",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Preparar consulta DJEN", "type": "main", "index": 0 }]]
     },
     "Preparar consulta DJEN": {
-      "main": [
-        [
-          {
-            "node": "Consultar DJEN",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Consultar DJEN", "type": "main", "index": 0 }]]
     },
     "Consultar DJEN": {
+      "main": [[{ "node": "Empacotar publicacoes", "type": "main", "index": 0 }]]
+    },
+    "Empacotar publicacoes": {
+      "main": [[{ "node": "Consulta funcionou?", "type": "main", "index": 0 }]]
+    },
+    "Consulta funcionou?": {
       "main": [
-        [
-          {
-            "node": "Ultima Publicacao",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Gravar no CRM", "type": "main", "index": 0 }],
+        [{ "node": "Falhas na consulta", "type": "main", "index": 0 }]
       ]
     },
-    "Ultima Publicacao": {
-      "main": [
-        [
-          {
-            "node": "Achou publicacao?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Gravar no CRM": {
+      "main": [[{ "node": "Resumo da execucao", "type": "main", "index": 0 }]]
     },
-    "Achou publicacao?": {
-      "main": [
-        [
-          {
-            "node": "Gravar no CRM se mudou",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Sem publicacao no DJEN",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gravar no CRM se mudou": {
-      "main": [
-        [
-          {
-            "node": "Resumo da execucao",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Resumo da execucao": {
+      "main": [[{ "node": "Classificar novidades", "type": "main", "index": 0 }]]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "pinData": {}
+  "pinData": {},
+  "meta": {
+    "instanceId": "7a3a60cdb6dca67917dccc3245166e8d07a8f361f0d4da02335bf4ba0092a615"
+  }
 }

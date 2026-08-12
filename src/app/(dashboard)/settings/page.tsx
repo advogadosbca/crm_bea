@@ -31,6 +31,8 @@ export default async function Page() {
         email: profile?.email || user!.email || '',
         avatar_url: profile?.avatar_url || '',
         role: profile?.role || 'colaborador',
+        oab: profile?.oab || '',
+        oab_uf: profile?.oab_uf || '',
       }}
       apiKeys={(keys as { id: string; name: string; key: string; created_at: string; last_used_at: string | null }[]) || []}
       baseUrl={baseUrl}

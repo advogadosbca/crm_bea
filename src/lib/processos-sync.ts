@@ -9,6 +9,8 @@ export type ColsProcessos = {
   consultadoEm?: string
   publicacao?: string
   dataPublicacao?: string
+  /** quem trata o processo no escritório (tipo `people` = array de profile ids) */
+  responsavel?: string
 }
 
 /** As duas fontes gratuitas escrevem em pares de colunas diferentes. */
@@ -44,21 +46,31 @@ export async function colunasProcessos(admin: SupabaseClient, workspaceId: strin
     // "Atualização Comunica" é o nome usado no CRM; o outro fica como alternativa
     publicacao: idAlgum('Atualização Comunica', 'Publicação (DJEN)'),
     dataPublicacao: id('Data da publicação'),
+    responsavel: idAlgum('Responsável', 'Advogado Responsável'),
   }
 }
 
 /**
- * Texto do DJEN: tira HTML (7 de 24 publicações vinham com tags), normaliza
- * espaço e corta. A mediana é 211 caracteres, mas há publicação de 6.400 —
- * inteira não cabe numa célula de tabela, e o link para o documento fica junto.
+ * Tira HTML do texto do DJEN e normaliza espaço, SEM cortar. É o que vai para
+ * `comunicacoes.texto` e para a classificação: numa amostra de 100 publicações
+ * reais a mediana é 885 caracteres e a maior tem 26.130 — cortar aqui jogaria
+ * fora justamente o trecho que diz a data da audiência ou o prazo.
  */
-export function limparPublicacao(texto: unknown, limite = 600): string {
-  const limpo = textoDe(texto)
+export function limparTexto(texto: unknown): string {
+  return textoDe(texto)
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<[^>]*>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * Versão curta para a CÉLULA da tabela, que é só prévia — o texto íntegro fica
+ * em `comunicacoes.texto`.
+ */
+export function limparPublicacao(texto: unknown, limite = 600): string {
+  const limpo = limparTexto(texto)
   return limpo.length > limite ? limpo.slice(0, limite - 1).trimEnd() + '…' : limpo
 }
 

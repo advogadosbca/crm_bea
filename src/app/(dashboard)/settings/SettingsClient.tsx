@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { SlidersHorizontal, Check, User, KeyRound, Building2, Camera, Copy, Plus, Trash2, Loader2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { SlidersHorizontal, Check, User, KeyRound, Building2, Camera, Copy, Plus, Trash2, Loader2, Sparkles, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { uploadFile } from '@/lib/upload'
 import { useRouter } from 'next/navigation'
@@ -9,10 +9,10 @@ import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader
 import { Field, Input } from '@/components/ui/primitives'
 
 interface Workspace { id: string; name: string; slug: string; banner_url?: string; logo_url?: string }
-interface Profile { id: string; full_name: string; email: string; avatar_url: string; role: string }
+interface Profile { id: string; full_name: string; email: string; avatar_url: string; role: string; oab: string; oab_uf: string }
 interface ApiKey { id: string; name: string; key: string; created_at: string; last_used_at: string | null }
 
-type Tab = 'perfil' | 'workspace' | 'apikeys'
+type Tab = 'perfil' | 'workspace' | 'apikeys' | 'ia'
 
 export function SettingsClient({ headerAssets, workspace, canEdit, profile, apiKeys, baseUrl }: {
   headerAssets: HeaderAssets; workspace: Workspace | null; canEdit: boolean
@@ -23,6 +23,7 @@ export function SettingsClient({ headerAssets, workspace, canEdit, profile, apiK
     { id: 'perfil', label: 'Perfil', icon: User, show: true },
     { id: 'workspace', label: 'Workspace', icon: Building2, show: canEdit },
     { id: 'apikeys', label: 'API Keys', icon: KeyRound, show: canEdit },
+    { id: 'ia', label: 'IA', icon: Sparkles, show: canEdit },
   ]
 
   return (
@@ -51,6 +52,7 @@ export function SettingsClient({ headerAssets, workspace, canEdit, profile, apiK
         {tab === 'perfil' && <PerfilTab profile={profile} />}
         {tab === 'workspace' && canEdit && <WorkspaceTab workspace={workspace} />}
         {tab === 'apikeys' && canEdit && <ApiKeysTab apiKeys={apiKeys} baseUrl={baseUrl} />}
+        {tab === 'ia' && canEdit && <IaTab />}
       </div>
     </div>
   )
@@ -62,6 +64,8 @@ function PerfilTab({ profile }: { profile: Profile }) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState(profile.full_name)
+  const [oab, setOab] = useState(profile.oab || '')
+  const [oabUf, setOabUf] = useState(profile.oab_uf || '')
   const [avatar, setAvatar] = useState(profile.avatar_url)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -81,7 +85,10 @@ function PerfilTab({ profile }: { profile: Profile }) {
 
   async function save(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaved(false)
-    await supabase.from('profiles').update({ full_name: name, avatar_url: avatar || null }).eq('id', profile.id)
+    await supabase.from('profiles').update({
+      full_name: name, avatar_url: avatar || null,
+      oab: oab.trim() || null, oab_uf: oabUf.trim().toUpperCase() || null,
+    }).eq('id', profile.id)
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000)
     router.refresh()
   }
@@ -107,6 +114,20 @@ function PerfilTab({ profile }: { profile: Profile }) {
 
       <Field label="Nome completo"><Input value={name} onChange={e => setName(e.target.value)} /></Field>
       <Field label="E-mail"><Input value={profile.email} disabled /></Field>
+
+      <div className="grid grid-cols-[1fr_6rem] gap-3">
+        <Field label="Número da OAB">
+          <Input value={oab} onChange={e => setOab(e.target.value)} placeholder="205660" />
+        </Field>
+        <Field label="UF">
+          <Input value={oabUf} onChange={e => setOabUf(e.target.value)} placeholder="MG" maxLength={2} />
+        </Field>
+      </div>
+      <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
+        A OAB é o que liga você às intimações: o DJEN informa a OAB de quem foi intimado, e o sistema usa
+        isso para mostrar em <b style={{ color: 'var(--notion-text-2)' }}>Novidades</b> quem recebeu cada comunicação.
+      </p>
+
       <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Perfil: <b style={{ color: 'var(--notion-text-2)' }}>{profile.role}</b> • o e-mail não pode ser alterado aqui.</p>
 
       <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
@@ -145,6 +166,153 @@ function WorkspaceTab({ workspace }: { workspace: Workspace | null }) {
         <p>Slug: <span className="font-mono">{workspace?.slug}</span></p>
         <p>ID: <span className="font-mono">{workspace?.id}</span></p>
       </div>
+    </form>
+  )
+}
+
+/* ---------------- IA ---------------- */
+/**
+ * Chave da IA que classifica as comunicações processuais.
+ *
+ * A chave nunca é devolvida ao navegador — o GET traz só os 4 últimos dígitos.
+ * Por isso o campo começa vazio mesmo com chave gravada: deixar em branco
+ * mantém a que está lá, digitar substitui.
+ */
+function IaTab() {
+  const [cfg, setCfg] = useState<{ provider: string; modelo: string; temChave: boolean; final: string | null; webhookCliente: string; atualizadaEm: string | null } | null>(null)
+  const [apiKey, setApiKey] = useState('')
+  const [modelo, setModelo] = useState('')
+  const [webhook, setWebhook] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [testando, setTestando] = useState(false)
+  const [teste, setTeste] = useState<{ ok: boolean; erro?: string; modelos?: string[] } | null>(null)
+
+  useEffect(() => { void carregar() }, [])
+
+  async function carregar() {
+    const r = await fetch('/api/ia/config')
+    if (!r.ok) return
+    const d = await r.json()
+    setCfg(d); setModelo(d.modelo); setWebhook(d.webhookCliente || '')
+  }
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setSaved(false)
+    const body: Record<string, string> = { modelo, provider: 'gemini', webhookCliente: webhook }
+    if (apiKey.trim()) body.apiKey = apiKey.trim()
+    const r = await fetch('/api/ia/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    setSaving(false)
+    if (r.ok) { setSaved(true); setApiKey(''); setTimeout(() => setSaved(false), 2000); void carregar() }
+    else alert((await r.json()).error || 'Erro ao salvar')
+  }
+
+  async function testar() {
+    setTestando(true); setTeste(null)
+    const r = await fetch('/api/ia/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+    })
+    setTeste(await r.json()); setTestando(false)
+  }
+
+  async function apagar() {
+    if (!confirm('Remover a chave? A classificação automática para de funcionar — as comunicações continuam chegando, só param de vir classificadas.')) return
+    await fetch('/api/ia/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: '' }),
+    })
+    setTeste(null); void carregar()
+  }
+
+  return (
+    <form onSubmit={salvar} className="space-y-5">
+      <div>
+        <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>Classificação por IA</h2>
+        <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
+          Usada para ler cada comunicação do DJEN e sugerir tipo, prazo e resumo em Novidades.
+          A sugestão é sempre revisada pelo advogado antes de virar tarefa.
+        </p>
+      </div>
+
+      <div className="rounded-lg p-3 text-xs flex gap-2" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)', color: 'var(--notion-text-2)' }}>
+        <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#FBBF24' }} />
+        <span>
+          A chave fica gravada no servidor e nunca é enviada ao navegador — nem aqui no Settings.
+          Gere a sua no Google AI Studio.
+        </span>
+      </div>
+
+      <Field label="Chave de API do Gemini">
+        <Input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} autoComplete="off"
+          placeholder={cfg?.temChave ? `chave gravada •••• ${cfg.final} — digite para substituir` : 'AIza...'} />
+      </Field>
+
+      <Field label="Modelo">
+        <Input value={modelo} onChange={e => setModelo(e.target.value)} placeholder="gemini-2.5-flash" />
+      </Field>
+      <p className="text-xs -mt-3" style={{ color: 'var(--notion-text-3)' }}>
+        Clique em <b style={{ color: 'var(--notion-text-2)' }}>Testar chave</b> para ver a lista de modelos que a sua conta enxerga
+        e copiar o nome exato — a disponibilidade muda por conta e por região.
+      </p>
+
+      <div className="pt-4 border-t" style={{ borderColor: 'var(--notion-border)' }}>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>Aviso ao cliente</h3>
+        <p className="text-xs mb-3" style={{ color: 'var(--notion-text-3)' }}>
+          Webhook do n8n que recebe o aviso quando o advogado marca “Avisar o cliente” ao aprovar uma novidade.
+          O CRM manda o texto pronto; o n8n escolhe o canal. Em branco, a opção fica indisponível.
+        </p>
+        <Field label="URL do webhook">
+          <Input value={webhook} onChange={e => setWebhook(e.target.value)}
+            placeholder="https://n8n.seudominio.com.br/webhook/aviso-cliente" />
+        </Field>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+          style={{ background: saved ? '#10B981' : 'var(--notion-accent)', color: '#fff', opacity: saving ? 0.7 : 1 }}>
+          {saved ? <><Check className="w-4 h-4" /> Salvo</> : saving ? 'Salvando...' : 'Salvar'}
+        </button>
+        <button type="button" onClick={testar} disabled={testando}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+          style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+          {testando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Testar chave
+        </button>
+        {cfg?.temChave && (
+          <button type="button" onClick={apagar} className="px-3 py-2 rounded-lg text-sm" style={{ color: '#F87171' }}>
+            Remover chave
+          </button>
+        )}
+      </div>
+
+      {teste && (
+        <div className="rounded-lg p-3 text-xs" style={{ background: 'var(--notion-bg-2)', border: `1px solid ${teste.ok ? 'rgba(16,185,129,0.4)' : 'rgba(248,113,113,0.4)'}` }}>
+          {teste.ok ? (
+            <>
+              <p style={{ color: '#34D399' }} className="mb-2 font-medium">Chave válida — {teste.modelos?.length || 0} modelos disponíveis.</p>
+              <div className="flex flex-wrap gap-1">
+                {(teste.modelos || []).map(m => (
+                  <button key={m} type="button" onClick={() => setModelo(m)}
+                    className="px-1.5 py-0.5 rounded font-mono text-[10px] hover:opacity-80"
+                    style={{ background: modelo === m ? 'var(--notion-accent)' : 'var(--notion-bg-4)', color: modelo === m ? '#fff' : 'var(--notion-text-2)' }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2" style={{ color: 'var(--notion-text-3)' }}>Clique num modelo para selecioná-lo, depois salve.</p>
+            </>
+          ) : (
+            <p style={{ color: '#F87171' }}>Falhou: {teste.erro}</p>
+          )}
+        </div>
+      )}
+
+      {cfg?.atualizadaEm && (
+        <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+          Atualizada em {new Date(cfg.atualizadaEm).toLocaleString('pt-BR')}
+        </p>
+      )}
     </form>
   )
 }

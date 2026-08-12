@@ -3,22 +3,30 @@ import {
   CAMPOS_DA_FONTE, cnjsDaCelula, colunasProcessos, descreverMovimento,
   limparPublicacao, soData, soDigitos, textoDe, type Fonte,
 } from '@/lib/processos-sync'
+import { ingerirPublicacoes, sincronizarResponsaveis, type ItemDjen } from '@/lib/comunicacoes'
 
 /**
  * POST /api/v1/processos/sincronizar
  *
- * Recebe a última movimentação de um processo (vinda do DataJud, via n8n) e só
- * grava se for diferente da que já está registrada. A comparação é por
- * data + descrição da movimentação — equivalente a "código + data", já que o
- * código do CNJ determina o nome, e evita o falso positivo de usar
- * dataHoraUltimaAtualizacao (que muda em reindexação, sem andamento novo).
+ * Recebe o andamento de um processo (do n8n) e atualiza a fonte "Processos
+ * Judiciais". Duas fontes, cada uma no seu par de colunas:
+ *   datajud -> "Atualização JusBR"     + "Data da movimentação"
+ *   djen    -> "Atualização Comunica"  + "Data da publicação"
  *
- * Body: {
- *   numero: "5015739-27.2025.8.13.0223",   // ou só dígitos
- *   movimento: { nome, dataHora, complementosTabelados? }
- * }
+ * No caso do DJEN existem dois formatos de corpo:
  *
- * Resposta: { status: 'atualizado' | 'sem_mudanca' | 'nao_encontrado', ... }
+ *   { fonte:'djen', rowId, numero, publicacoes: [ ...itens crus da API... ] }
+ *     Preferido. Grava TODAS as publicações na tabela `comunicacoes` (append-only,
+ *     idempotente pelo id/hash do DJEN) e usa a mais recente como prévia na célula.
+ *     Lista vazia é resposta legítima: significa "consultei e não há nada", e
+ *     mesmo assim carimba "Consultado em" — sem isso é impossível distinguir
+ *     "conferido hoje, nada encontrado" de "nunca foi conferido".
+ *
+ *   { fonte:'djen', rowId, numero, publicacao: { texto, data, tipo, orgao } }
+ *     Formato antigo, de uma publicação só. Continua funcionando para não
+ *     quebrar fluxo já em produção, mas não alimenta a central de novidades.
+ *
+ * Resposta: { status: 'atualizado' | 'sem_mudanca' | 'sem_publicacao' | 'nao_encontrado', ... }
  */
 export async function POST(req: Request) {
   const auth = await authApiKey(req)
@@ -31,9 +39,6 @@ export async function POST(req: Request) {
     return Response.json({ error: 'numero inválido: esperado número CNJ com 20 dígitos' }, { status: 400 })
   }
 
-  // duas fontes gratuitas, cada uma no seu par de colunas:
-  //   datajud -> "Atualização JusBR"  + "Data da movimentação"   (movimento processual)
-  //   djen    -> "Publicação (DJEN)"  + "Data da publicação"     (intimação publicada)
   // 'fonte' ausente = datajud (compatível com quem já chama). Valor desconhecido
   // é erro explícito: cair no padrão em silêncio esconderia typo no fluxo e
   // gravaria publicação em cima da movimentação.
@@ -41,43 +46,19 @@ export async function POST(req: Request) {
     return Response.json({ error: `fonte inválida: "${body.fonte}". Use "datajud" ou "djen".` }, { status: 400 })
   }
   const fonte: Fonte = body.fonte === 'djen' ? 'djen' : 'datajud'
-
-  let descricao = ''
-  let dataEvento = ''
-  if (fonte === 'djen') {
-    const pub = body.publicacao || {}
-    const cabecalho = [pub.tipo, pub.orgao].filter(Boolean).join(' · ')
-    const corpo = limparPublicacao(pub.texto)
-    descricao = cabecalho ? `[${cabecalho}] ${corpo}` : corpo
-    dataEvento = soData(pub.data)
-    if (!corpo || !dataEvento) {
-      return Response.json({ error: 'publicacao incompleta: exige texto e data' }, { status: 400 })
-    }
-  } else {
-    const mov = body.movimento || {}
-    descricao = descreverMovimento(mov.nome, mov.complementosTabelados, mov.instancia)
-    dataEvento = soData(mov.dataHora)
-    if (!descricao || !dataEvento) {
-      return Response.json({ error: 'movimento incompleto: exige nome e dataHora' }, { status: 400 })
-    }
-  }
+  const lista: ItemDjen[] | null =
+    fonte === 'djen' && Array.isArray(body.publicacoes) ? body.publicacoes as ItemDjen[] : null
 
   const cols = await colunasProcessos(admin, workspaceId)
   if (!cols) return Response.json({ error: 'Fonte "Processos Judiciais" não encontrada.' }, { status: 404 })
 
-  const campos = CAMPOS_DA_FONTE[fonte]
-  const colTexto = cols[campos.texto] as string | undefined
-  const colData = cols[campos.data] as string | undefined
-  if (!colTexto) return Response.json({ error: `Coluna de destino da fonte "${fonte}" não existe.` }, { status: 409 })
-
+  // ---------- achar a linha do processo ----------
   // Caminho rápido: o GET /processos já devolve o rowId, então a busca é por
-  // chave primária. Sem isso seria preciso baixar as ~390 linhas da fonte a cada
-  // chamada — o que degrada rápido quando o n8n dispara vários processos juntos.
+  // chave primária. Sem isso seria preciso baixar as ~390 linhas a cada chamada.
   let alvo: { id: string; data: Record<string, unknown> } | null = null
 
   if (typeof body.rowId === 'string' && body.rowId) {
     const { data } = await admin.from('db_rows').select('id, data, table_id').eq('id', body.rowId).maybeSingle()
-    // confere que a linha é mesmo da fonte de processos deste workspace
     if (data && data.table_id === cols.tableId
         && cnjsDaCelula((data.data as Record<string, unknown>)[cols.numero]).includes(digitos)) {
       alvo = { id: data.id, data: data.data as Record<string, unknown> }
@@ -95,17 +76,73 @@ export async function POST(req: Request) {
 
   if (!alvo) return Response.json({ status: 'nao_encontrado', numero: body.numero })
 
-  const atual = alvo.data as Record<string, unknown>
+  const atual = alvo.data
+  const hoje = new Date().toISOString().split('T')[0]
+  const carimbarConsulta = async () => {
+    if (cols.consultadoEm) {
+      await admin.from('db_rows').update({ data: { ...atual, [cols.consultadoEm]: hoje } }).eq('id', alvo!.id)
+    }
+  }
+
+  // ---------- ingestão na central de novidades ----------
+  let ingestao = null
+  if (lista) {
+    ingestao = await ingerirPublicacoes({
+      admin, workspaceId, cols, rowId: alvo.id, cnj: digitos, linha: atual, itens: lista,
+    })
+    // a rodada diária é também quando a troca de responsável no CRM alcança as
+    // novidades que ainda estão na caixa
+    await sincronizarResponsaveis({ admin, workspaceId, cnj: digitos, linha: atual, cols })
+    if (!lista.length) {
+      // consultado, nada publicado — resposta legítima, não é falha
+      await carimbarConsulta()
+      return Response.json({ status: 'sem_publicacao', fonte, rowId: alvo.id, consultadoEm: hoje })
+    }
+  }
+
+  // ---------- texto/data que vão para a célula ----------
+  let descricao = ''
+  let dataEvento = ''
+
+  if (lista) {
+    // a API não garante ordem; a prévia é sempre a publicação mais recente
+    const maisNova = [...lista].sort((a, b) =>
+      String(b.data_disponibilizacao).localeCompare(String(a.data_disponibilizacao)))[0]
+    const cabecalho = [maisNova.tipoComunicacao, maisNova.nomeOrgao].filter(Boolean).join(' · ')
+    const corpo = limparPublicacao(maisNova.texto)
+    descricao = cabecalho ? `[${cabecalho}] ${corpo}` : corpo
+    dataEvento = soData(maisNova.data_disponibilizacao)
+  } else if (fonte === 'djen') {
+    const pub = body.publicacao || {}
+    const cabecalho = [pub.tipo, pub.orgao].filter(Boolean).join(' · ')
+    const corpo = limparPublicacao(pub.texto)
+    descricao = cabecalho ? `[${cabecalho}] ${corpo}` : corpo
+    dataEvento = soData(pub.data)
+    if (!corpo || !dataEvento) {
+      return Response.json({ error: 'publicacao incompleta: exige texto e data' }, { status: 400 })
+    }
+  } else {
+    const mov = body.movimento || {}
+    descricao = descreverMovimento(mov.nome, mov.complementosTabelados, mov.instancia)
+    dataEvento = soData(mov.dataHora)
+    if (!descricao || !dataEvento) {
+      return Response.json({ error: 'movimento incompleto: exige nome e dataHora' }, { status: 400 })
+    }
+  }
+
+  const campos = CAMPOS_DA_FONTE[fonte]
+  const colTexto = cols[campos.texto] as string | undefined
+  const colData = cols[campos.data] as string | undefined
+  if (!colTexto) return Response.json({ error: `Coluna de destino da fonte "${fonte}" não existe.` }, { status: 409 })
+
   const mesmaDescricao = textoDe(atual[colTexto]).trim() === descricao.trim()
   const mesmaData = colData ? soData(atual[colData]) === dataEvento : true
-  const hoje = new Date().toISOString().split('T')[0]
 
   if (mesmaDescricao && mesmaData) {
-    // nada mudou: só registra que a consulta aconteceu, sem tocar no conteúdo
-    if (cols.consultadoEm) {
-      await admin.from('db_rows').update({ data: { ...atual, [cols.consultadoEm]: hoje } }).eq('id', alvo.id)
-    }
-    return Response.json({ status: 'sem_mudanca', fonte, rowId: alvo.id })
+    // a prévia não mudou; mesmo assim pode ter entrado comunicação nova na
+    // caixa (publicação antiga detectada com atraso), por isso `ingestao` volta
+    await carimbarConsulta()
+    return Response.json({ status: 'sem_mudanca', fonte, rowId: alvo.id, ingestao })
   }
 
   const novo: Record<string, unknown> = { ...atual, [colTexto]: descricao }
@@ -124,5 +161,6 @@ export async function POST(req: Request) {
     movimentacao: descricao,
     dataMovimentacao: dataEvento,
     consultadoEm: hoje,
+    ingestao,
   })
 }

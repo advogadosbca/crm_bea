@@ -12,7 +12,7 @@ export const getAuthProfile = cache(async () => {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, workspace_id, avatar_url')
+    .select('id, full_name, email, role, workspace_id, avatar_url, oab, oab_uf')
     .eq('id', user.id)
     .single()
 

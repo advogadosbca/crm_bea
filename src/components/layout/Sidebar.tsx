@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   Settings, Users, TrendingUp, FileText, Scale,
   Gavel, Building2, Target, Users2, Megaphone,
-  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History
+  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History, Bell
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -13,6 +13,7 @@ import { useIsAdmin } from './RoleProvider'
 
 const modules = [
   { href: '/', label: 'Início', icon: Home },
+  { href: '/novidades', label: 'Novidades', icon: Bell },
   { href: '/geral', label: 'Geral', icon: Settings },
   { href: '/fontes', label: 'Fonte de dados', icon: Database },
   { href: '/financeiro', label: 'Financeiro', icon: Landmark },
@@ -35,7 +36,7 @@ const modulosAdmin = [
   { href: '/auditoria', label: 'Auditoria', icon: History },
 ]
 
-export function Sidebar({ workspaceName }: { workspaceName?: string }) {
+export function Sidebar({ workspaceName, novidades = 0 }: { workspaceName?: string; novidades?: number }) {
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -81,7 +82,13 @@ export function Sidebar({ workspaceName }: { workspaceName?: string }) {
             >
               <Icon className="w-4 h-4 flex-shrink-0 transition-colors"
                 style={{ color: isActive ? 'var(--notion-accent)' : 'var(--notion-text-3)' }} />
-              <span className="truncate">{mod.label}</span>
+              <span className="truncate flex-1">{mod.label}</span>
+              {mod.href === '/novidades' && novidades > 0 && (
+                <span className="px-1.5 rounded-full text-[10px] font-semibold flex-shrink-0"
+                  style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+                  {novidades > 99 ? '99+' : novidades}
+                </span>
+              )}
             </Link>
           )
         })}
