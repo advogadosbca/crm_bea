@@ -240,13 +240,13 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
       {visiveis.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap mb-2 px-3 py-2 rounded-lg text-xs"
           style={{
-            background: sel.length ? 'var(--notion-bg-3)' : 'transparent',
-            border: `1px solid ${sel.length ? 'var(--notion-accent)' : 'transparent'}`,
+            background: sel.length ? 'var(--notion-bg-2)' : 'transparent',
+            border: `1px solid ${sel.length ? 'var(--notion-border)' : 'transparent'}`,
           }}>
           <label className="flex items-center gap-2 cursor-pointer" style={{ color: 'var(--notion-text-2)' }}>
             <input type="checkbox" checked={todasVisiveis} onChange={alternarTodas}
               ref={el => { if (el) el.indeterminate = sel.length > 0 && !todasVisiveis }}
-              className="cursor-pointer" style={{ accentColor: 'var(--notion-accent)' }} />
+              className="caixa-selecao" />
             {sel.length === 0
               ? `Selecionar tudo (${visiveis.length})`
               : abaInteira
@@ -349,24 +349,24 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, s
   return (
     <div className="group rounded-lg border overflow-hidden"
       style={{
-        background: selecionada ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)',
-        borderColor: selecionada ? 'var(--notion-accent)'
-          : c.cancelada ? 'rgba(248,113,113,0.5)' : 'var(--notion-border)',
+        background: 'var(--notion-bg-2)',
+        borderColor: c.cancelada ? 'rgba(248,113,113,0.5)' : 'var(--notion-border)',
       }}>
-      <div className="flex items-start">
+      {/* O realce (hover e selecionado) vive nesta linha, não no <button> de
+          dentro: com ele no botão, a coluna da caixa de seleção ficava de fora
+          e a comunicação aparecia com duas cores lado a lado. */}
+      <div className={`flex items-start transition-colors ${
+        selecionada ? 'bg-[var(--notion-bg-3)]' : 'hover:bg-[var(--notion-bg-3)]'}`}>
         {/* fora do <button> de propósito: checkbox dentro de botão é HTML
             inválido e o clique acionaria os dois. Aparece no hover, e fica
             fixa assim que existe seleção — some no meio de um lote é pior que
             um pouco de ruído visual. */}
-        <label onClick={e => e.stopPropagation()}
-          className="pl-3 pt-3 pr-0.5 cursor-pointer transition-opacity"
-          style={{ opacity: selecionada || algumaSelecionada ? 1 : undefined }}>
+        <label className="pl-3 pt-3 pr-0.5 cursor-pointer">
           <input type="checkbox" checked={selecionada} onChange={onSelecionar}
             aria-label="Selecionar comunicação"
-            className={`cursor-pointer transition-opacity ${selecionada || algumaSelecionada ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
-            style={{ accentColor: 'var(--notion-accent)' }} />
+            className={`caixa-selecao transition-opacity ${selecionada || algumaSelecionada ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} />
         </label>
-      <button onClick={onToggle} className="flex-1 min-w-0 text-left px-3 py-2.5 hover:bg-[var(--notion-bg-3)] transition-colors">
+      <button onClick={onToggle} className="flex-1 min-w-0 text-left px-3 py-2.5">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">

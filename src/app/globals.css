@@ -50,6 +50,49 @@ select:focus-visible {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
+/* Caixa de seleção (Notificações).
+   O checkbox nativo pinta com a cor do sistema e vira um quadrado branco no
+   tema escuro — chama mais atenção que a própria comunicação. Aqui ele é só um
+   tom acima do fundo do card; quem marca o estado é o tique, não a cor. */
+.caixa-selecao {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--notion-bg-4);
+  background: var(--notion-bg-3);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.caixa-selecao:hover { border-color: var(--notion-text-3); }
+.caixa-selecao:checked,
+.caixa-selecao:indeterminate { background: var(--notion-bg-4); border-color: var(--notion-text-3); }
+
+.caixa-selecao:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 3px;
+  height: 7px;
+  border: solid var(--notion-text);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+/* estado "alguns marcados" da caixa do topo */
+.caixa-selecao:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 2.5px;
+  top: 5.5px;
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--notion-text);
+}
+
 /* Cursor de mão em tudo que é clicável */
 button, a, select, label, summary, [role="button"], [role="tab"], [role="option"], .cursor-pointer {
   cursor: pointer;
