@@ -58,6 +58,81 @@ function Avatar({ id, name, size = 20 }: { id: string; name: string; size?: numb
   )
 }
 
+/**
+ * Quantos caracteres um texto mostra antes de virar prévia com reticências.
+ *
+ * O que forçou o limite foi a coluna "Atualização Comunica": a publicação do
+ * DJEN tem em média 558 caracteres, e mostrá-la inteira dava uma linha de
+ * tabela com altura de parágrafo e, no painel lateral, uma caixa de rolagem
+ * dentro de outra caixa de rolagem. 200 cabe em duas linhas e ainda diz do que
+ * se trata.
+ */
+const LIMITE_PREVIA = 200
+
+/**
+ * Texto completo em modal. É também onde se edita: um textarea de 4 linhas
+ * embutido na célula nunca foi lugar de mexer em 600 caracteres.
+ */
+function ModalTexto({ titulo, valor, somenteLeitura, onFechar, onSalvar }: {
+  titulo: string; valor: string; somenteLeitura: boolean
+  onFechar: () => void; onSalvar: (v: string) => void
+}) {
+  const [texto, setTexto] = useState(valor)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onFechar])
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0" style={{ zIndex: 10060, background: 'rgba(0,0,0,0.45)' }} onClick={onFechar} />
+      <div className="fixed rounded-lg shadow-2xl flex flex-col"
+        style={{
+          zIndex: 10061, left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+          width: 'min(720px, calc(100vw - 32px))', maxHeight: 'min(70vh, 640px)',
+          background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)',
+        }}
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b flex-shrink-0" style={{ borderColor: 'var(--notion-border)' }}>
+          <span className="text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>{titulo}</span>
+          <span className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>{texto.length} caracteres</span>
+          <div className="flex-1" />
+          <button onClick={onFechar} title="Fechar" className="p-1 rounded hover:bg-[var(--notion-bg-4)]"
+            style={{ color: 'var(--notion-text-3)' }}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {somenteLeitura ? (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words" style={{ color: 'var(--notion-text)' }}>
+              {texto}
+            </p>
+          ) : (
+            <textarea value={texto} onChange={e => setTexto(e.target.value)} autoFocus
+              className="w-full text-sm leading-relaxed outline-none resize-none"
+              style={{ background: 'transparent', color: 'var(--notion-text)', minHeight: 260 }} />
+          )}
+        </div>
+
+        {!somenteLeitura && (
+          <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t flex-shrink-0" style={{ borderColor: 'var(--notion-border)' }}>
+            <button onClick={onFechar} className="px-3 py-1.5 rounded-md text-xs"
+              style={{ color: 'var(--notion-text-2)' }}>Cancelar</button>
+            <button onClick={() => onSalvar(texto)} className="px-3 py-1.5 rounded-md text-xs font-medium"
+              style={{ background: 'var(--notion-accent)', color: '#fff' }}>Salvar</button>
+          </div>
+        )}
+      </div>
+    </>,
+    document.body,
+  )
+}
+
 function Chip({ opt, onRemove }: { opt: SelectOption; onRemove?: () => void }) {
   return (
     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap"
@@ -91,19 +166,44 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
 
   // ---- texto (multi-linha: quebra de linha + rolagem) ----
   if (type === 'text') {
+    const v = (value as string) || ''
+
+    // Texto longo vira prévia + modal, tanto na tabela quanto no painel lateral
+    // (os dois passam por aqui). Vale também no modo somente leitura: ali o
+    // clique não edita, mas continua sendo a única forma de ler o resto.
+    if (v.length > LIMITE_PREVIA) {
+      return (
+        <>
+          <div className="w-full min-h-[38px] px-2.5 py-2 text-sm flex items-start cursor-pointer"
+            style={txt} title="Clique para ver o texto completo"
+            onClick={e => { e.stopPropagation(); setEditing(true) }}>
+            <span className="break-words w-full" style={{ display: 'block' }}>
+              {v.slice(0, LIMITE_PREVIA).trimEnd()}
+              <span style={{ color: 'var(--notion-text-3)' }}>…</span>
+            </span>
+          </div>
+          {editing && (
+            <ModalTexto titulo={column.name} valor={v} somenteLeitura={readOnly}
+              onFechar={() => setEditing(false)}
+              onSalvar={novo => { onChange(novo.trim() || null); setEditing(false) }} />
+          )}
+        </>
+      )
+    }
+
+    // curto: edição na própria célula, como sempre foi
     if (editing && !readOnly) {
-      return <textarea autoFocus defaultValue={(value as string) || ''}
+      return <textarea autoFocus defaultValue={v}
         onBlur={e => { onChange(e.target.value || null); setEditing(false) }}
         onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }}
         rows={4} className="w-full px-2 py-1.5 text-sm outline-none resize-y"
         style={{ background: 'var(--notion-bg-4)', minHeight: 64, maxHeight: 280, ...txt }} />
     }
-    const v = value as string
     return (
       <div className={'w-full min-h-[38px] px-2.5 py-2 text-sm flex items-start' + (readOnly ? '' : ' cursor-pointer')}
         style={txt} onClick={() => { if (!readOnly) setEditing(true) }}>
         {v
-          ? <span className="whitespace-pre-wrap break-words w-full" style={{ display: 'block', maxHeight: 160, overflowY: 'auto' }}>{v}</span>
+          ? <span className="whitespace-pre-wrap break-words w-full" style={{ display: 'block' }}>{v}</span>
           : <span style={{ color: 'var(--notion-text-3)' }}> </span>}
       </div>
     )
