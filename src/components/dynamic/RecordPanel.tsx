@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DataSource, DBRow, SelectOption, COLUMN_TYPES, primaryValue } from '@/types/dynamic'
+import { DataSource, DBRow, SelectOption, COLUMN_TYPES, recordTitle, CHAVE_TITULO } from '@/types/dynamic'
 import { Cell } from './Cell'
 import { TypeIcon } from './TypePicker'
 import { RecordTasks } from '@/components/board/RecordTasks'
@@ -10,6 +10,58 @@ import { RecordComments } from './RecordComments'
 import { X, ChevronLeft } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
+
+/**
+ * Título do painel: mostra o nome herdado (do cliente relacionado) e aceita um
+ * texto próprio por cima.
+ *
+ * Apagar o campo não deixa o registro sem cabeçalho — grava nulo e o título
+ * volta a seguir o cliente. É o que faz o "puxar sempre do cliente" continuar
+ * valendo depois de alguém experimentar um título e se arrepender.
+ */
+function TituloRegistro({ titulo, proprio, onSalvar }: {
+  titulo: string
+  /** true = o texto atual foi escrito à mão; false = veio do registro relacionado */
+  proprio: boolean
+  onSalvar: (valor: string) => void
+}) {
+  const [editando, setEditando] = useState(false)
+  const [texto, setTexto] = useState(titulo)
+
+  // o título derivado muda quando o cliente muda; sem isso o campo ficaria
+  // preso ao valor de quando o painel abriu
+  useEffect(() => { if (!editando) setTexto(titulo) }, [titulo, editando])
+
+  function confirmar() {
+    setEditando(false)
+    const limpo = texto.trim()
+    if (limpo === titulo.trim()) return   // nada mudou de fato: não grava à toa
+    onSalvar(limpo)                       // vazio grava nulo e volta a herdar
+  }
+
+  if (editando) {
+    return (
+      <input autoFocus value={texto} onChange={e => setTexto(e.target.value)}
+        onBlur={confirmar}
+        onKeyDown={e => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          if (e.key === 'Escape') { setTexto(titulo); setEditando(false) }
+        }}
+        placeholder="Título do registro"
+        className="w-full text-xl font-semibold leading-snug outline-none rounded px-1 -mx-1"
+        style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)' }} />
+    )
+  }
+
+  return (
+    <h2 onClick={() => setEditando(true)}
+      title={proprio ? 'Título editado à mão — clique para alterar' : 'Herdado do cliente — clique para escrever outro'}
+      className="text-xl font-semibold leading-snug break-words cursor-text rounded px-1 -mx-1 hover:bg-[var(--notion-bg-3)]"
+      style={{ color: 'var(--notion-text)' }}>
+      {titulo}
+    </h2>
+  )
+}
 
 /**
  * Painel lateral de detalhe de um registro (estilo "peek" do Notion).
@@ -88,9 +140,12 @@ export function RecordPanel({ record, sources, members, userId, onClose, onSaveF
           <>
             {/* título */}
             <div className="px-5 pt-5 pb-3 flex-shrink-0">
-              <h2 className="text-xl font-semibold leading-snug break-words" style={{ color: 'var(--notion-text)' }}>
-                {primaryValue(row, src.columns)}
-              </h2>
+              <TituloRegistro
+                key={row.id}
+                titulo={recordTitle(row, src, sources)}
+                proprio={typeof row.data[CHAVE_TITULO] === 'string' && !!(row.data[CHAVE_TITULO] as string).trim()}
+                onSalvar={v => onSaveField(src.id, row.id, CHAVE_TITULO, v || null)}
+              />
             </div>
 
             {/* campos + tarefas vinculadas */}

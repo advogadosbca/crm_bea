@@ -309,3 +309,53 @@ export function convertValue(value: unknown, from: ColumnType, to: ColumnType): 
       return { value: null, lossy: true }
   }
 }
+
+/**
+ * Chave do título escrito à mão, dentro de `db_rows.data`.
+ *
+ * Não é uma coluna: as chaves de `data` são ids de coluna (UUID), então um
+ * prefixo `__` nunca colide e o título não aparece como mais uma coluna na
+ * grade. Guardar aqui evita criar uma coluna "Título" em toda fonte só para
+ * abrigar uma exceção.
+ */
+export const CHAVE_TITULO = '__titulo'
+
+/**
+ * Título de um registro no painel de detalhe.
+ *
+ * A ordem importa e resolve uma reclamação concreta: em Processos Judiciais o
+ * título vinha de `primaryValue`, que pega a primeira coluna de texto por
+ * posição. Como "Cliente" é relação e "Contato" é rollup, a primeira de texto
+ * é CPF/CNPJ — e o painel abria com o número do documento como cabeçalho (349
+ * das 376 linhas preenchidas guardam CPF de verdade ali).
+ *
+ * Agora:
+ *   1. título escrito à mão naquela linha, se houver;
+ *   2. senão, o nome do registro relacionado — o cliente, na prática (397 das
+ *      400 linhas de Processos têm a relação preenchida);
+ *   3. senão, o comportamento antigo.
+ *
+ * Só desce um nível na relação: pega o rótulo do registro apontado e para. Sem
+ * isso, uma fonte que se relaciona com outra que se relaciona de volta entraria
+ * em laço.
+ */
+export function recordTitle(row: DBRow, source: DataSource, sources: DataSource[]): string {
+  const manual = row.data[CHAVE_TITULO]
+  if (typeof manual === 'string' && manual.trim()) return manual.trim()
+
+  const rel = [...source.columns]
+    .sort((a, b) => a.position - b.position)
+    .find(c => c.type === 'relation' && c.config?.sourceTableId)
+
+  if (rel) {
+    const ids = Array.isArray(row.data[rel.id]) ? (row.data[rel.id] as string[]) : []
+    const alvo = sources.find(s => s.id === rel.config.sourceTableId)
+    const apontado = ids.length && alvo ? alvo.rows.find(r => r.id === ids[0]) : undefined
+    if (alvo && apontado) {
+      const nome = relationLabel(apontado, alvo, rel).trim()
+      if (nome && nome !== '(sem título)') return nome
+    }
+  }
+
+  return primaryValue(row, source.columns)
+}
