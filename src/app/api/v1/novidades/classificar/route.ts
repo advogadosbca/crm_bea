@@ -44,6 +44,10 @@ export async function POST(req: Request) {
   let q = admin.from('comunicacoes')
     .select('id, texto, data_publicacao, tipo_documento, nome_classe, orgao, tribunal, partes')
     .eq('workspace_id', workspaceId)
+    // só o que está na caixa: publicação que entrou já tratada (acervo antigo
+    // de processo recém-monitorado) ninguém vai ler, e classificar cada uma
+    // custa uma chamada paga à IA
+    .eq('status', 'nova')
     .is('classificado_em', null)
     .order('detectado_em', { ascending: false })
     .limit(limite)
@@ -93,7 +97,8 @@ export async function POST(req: Request) {
 
   const { count } = await admin.from('comunicacoes')
     .select('id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId).is('classificado_em', null).is('classificacao_erro', null)
+    .eq('workspace_id', workspaceId).eq('status', 'nova')
+    .is('classificado_em', null).is('classificacao_erro', null)
 
   return Response.json({ classificadas: ok, erros: falhas, restantes: count ?? 0, modelo: cfg.modelo })
 }
