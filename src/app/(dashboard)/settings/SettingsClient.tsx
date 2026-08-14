@@ -125,7 +125,7 @@ function PerfilTab({ profile }: { profile: Profile }) {
       </div>
       <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
         A OAB é o que liga você às intimações: o DJEN informa a OAB de quem foi intimado, e o sistema usa
-        isso para mostrar em <b style={{ color: 'var(--notion-text-2)' }}>Novidades</b> quem recebeu cada comunicação.
+        isso para mostrar em <b style={{ color: 'var(--notion-text-2)' }}>Notificações</b> quem recebeu cada comunicação.
       </p>
 
       <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Perfil: <b style={{ color: 'var(--notion-text-2)' }}>{profile.role}</b> • o e-mail não pode ser alterado aqui.</p>
@@ -231,7 +231,7 @@ function IaTab() {
       <div>
         <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>Classificação por IA</h2>
         <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
-          Usada para ler cada comunicação do DJEN e sugerir tipo, prazo e resumo em Novidades.
+          Usada para ler cada comunicação do DJEN e sugerir tipo, prazo e resumo em Notificações.
           A sugestão é sempre revisada pelo advogado antes de virar tarefa.
         </p>
       </div>
@@ -260,7 +260,7 @@ function IaTab() {
       <div className="pt-4 border-t" style={{ borderColor: 'var(--notion-border)' }}>
         <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>Aviso ao cliente</h3>
         <p className="text-xs mb-3" style={{ color: 'var(--notion-text-3)' }}>
-          Webhook do n8n que recebe o aviso quando o advogado marca “Avisar o cliente” ao aprovar uma novidade.
+          Webhook do n8n que recebe o aviso quando o advogado marca “Avisar o cliente” ao aprovar uma notificação.
           O CRM manda o texto pronto; o n8n escolhe o canal. Em branco, a opção fica indisponível.
         </p>
         <Field label="URL do webhook">

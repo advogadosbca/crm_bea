@@ -13,7 +13,9 @@ import { useIsAdmin } from './RoleProvider'
 
 const modules = [
   { href: '/', label: 'Início', icon: Home },
-  { href: '/novidades', label: 'Novidades', icon: Bell },
+  // a rota continua /novidades (o pageKey do banner e os links salvos apontam
+  // para ela); só o rótulo mudou
+  { href: '/novidades', label: 'Notificações', icon: Bell },
   { href: '/geral', label: 'Geral', icon: Settings },
   { href: '/fontes', label: 'Fonte de dados', icon: Database },
   { href: '/financeiro', label: 'Financeiro', icon: Landmark },

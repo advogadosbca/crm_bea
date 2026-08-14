@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Bell, Check, X, Loader2, Sparkles, AlertTriangle, CalendarClock, Clock,
   FileText, ChevronDown, ChevronUp, Filter, Send, Ban, User, Phone,
+  Mail, MailOpen, Trash2,
 } from 'lucide-react'
 import type { MapaClientes, ClienteDoProcesso } from '@/lib/clientes-por-processo'
 import { Field, Input, Select } from '@/components/ui/primitives'
@@ -72,18 +73,36 @@ const fmtCnj = (d: string) =>
   d?.length === 20 ? `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16)}` : d
 const fmtData = (s?: string | null) => (s ? new Date(`${s}T12:00:00Z`).toLocaleDateString('pt-BR') : '—')
 
-export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membros, userId, isAdmin }: {
+type Aba = 'acao' | 'informativas' | 'tratadas'
+type AcaoLote = 'ler' | 'nao_ler' | 'dispensar' | 'excluir'
+
+const LOTE_LABEL: Record<AcaoLote, string> = {
+  ler: 'marcar como lidas',
+  nao_ler: 'marcar como não lidas',
+  dispensar: 'dispensar',
+  excluir: 'excluir',
+}
+
+export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membros, userId, isAdmin, totalNovas }: {
   headerAssets: HeaderAssets
   /** CNJ -> cliente do processo, resolvido no servidor a cada carga */
   clientes: MapaClientes
   novas: Comunicacao[]; tratadas: Comunicacao[]; membros: Membro[]; userId: string; isAdmin: boolean
+  /** total na caixa, que pode ser maior que `novas.length` (a página tem teto) */
+  totalNovas: number
 }) {
   const router = useRouter()
-  const [aba, setAba] = useState<'acao' | 'informativas' | 'tratadas'>('acao')
+  const [aba, setAba] = useState<Aba>('acao')
   const [soMinhas, setSoMinhas] = useState(false)
   const [aberta, setAberta] = useState<string | null>(null)
   const [classificando, setClassificando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+
+  // seleção em lote
+  const [sel, setSel] = useState<string[]>([])
+  const [abaInteira, setAbaInteira] = useState(false)   // "selecionar todas", inclusive as não carregadas
+  const [confirmando, setConfirmando] = useState<AcaoLote | null>(null)
+  const [aplicando, setAplicando] = useState(false)
 
   const visiveis = useMemo(() => {
     const base = soMinhas ? novas.filter(c => c.responsaveis?.includes(userId)) : novas
@@ -96,6 +115,46 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
 
   const naoClassificadas = novas.filter(c => !c.classificacao && !c.classificacao_erro).length
   const comErro = novas.filter(c => c.classificacao_erro).length
+
+  // Trocar de aba ou de filtro muda o conjunto na tela; manter a seleção antiga
+  // aqui significaria aplicar "excluir" em item que o usuário não está vendo.
+  useEffect(() => { setSel([]); setAbaInteira(false); setConfirmando(null) }, [aba, soMinhas])
+
+  const selecionadas = useMemo(() => new Set(sel), [sel])
+  const todasVisiveis = visiveis.length > 0 && visiveis.every(c => selecionadas.has(c.id))
+  // quantas a aba tem de verdade, incluindo o que não coube no carregamento
+  const totalDaAba = aba === 'tratadas' ? tratadas.length : totalNovas
+  const haMaisQueOCarregado = aba !== 'tratadas' && totalNovas > novas.length
+
+  function alternar(id: string) {
+    setAbaInteira(false); setConfirmando(null)
+    setSel(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]))
+  }
+  function alternarTodas() {
+    setAbaInteira(false); setConfirmando(null)
+    setSel(todasVisiveis ? [] : visiveis.map(c => c.id))
+  }
+
+  /** Ações que fazem sentido na aba atual. Em "Tratadas" a comunicação já virou
+   *  pendência ou já foi dispensada — só resta tirar da frente. */
+  const acoesDaAba: AcaoLote[] = aba === 'tratadas'
+    ? (isAdmin ? ['excluir'] : [])
+    : (isAdmin ? ['ler', 'nao_ler', 'dispensar', 'excluir'] : ['ler', 'nao_ler', 'dispensar'])
+
+  async function aplicarLote(acao: AcaoLote) {
+    setAplicando(true); setMsg(null)
+    const r = await fetch('/api/novidades/lote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(abaInteira ? { acao, todas: { aba, soMinhas } } : { acao, ids: sel }),
+    })
+    const d = await r.json()
+    setAplicando(false); setConfirmando(null)
+    if (!r.ok) { setMsg(d.error || 'Falha na ação em lote'); return }
+    setSel([]); setAbaInteira(false)
+    setMsg(`${d.afetadas} ${d.afetadas === 1 ? 'comunicação' : 'comunicações'}: ${LOTE_LABEL[acao]}.`
+      + (d.ignoradas ? ` ${d.ignoradas} ignorada(s) por já estarem tratadas.` : ''))
+    router.refresh()
+  }
 
   async function classificarPendentes() {
     setClassificando(true); setMsg(null)
@@ -126,7 +185,7 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
 
   return (
     <div className="min-h-screen">
-      <EditableHeader title="Novidades" icon={Bell} color="#FBBF24"
+      <EditableHeader title="Notificações" icon={Bell} color="#FBBF24"
         gradient="linear-gradient(135deg, #422006 0%, #713f12 60%, #422006 100%)"
         pageKey="novidades" workspaceId={headerAssets.workspaceId}
         initialBanner={headerAssets.banner} initialLogo={headerAssets.logo} canEdit={headerAssets.canEdit} />
@@ -171,8 +230,76 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
         <div className="py-16 text-center">
           <Bell className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--notion-text-3)' }} />
           <p className="text-sm" style={{ color: 'var(--notion-text-3)' }}>
-            {aba === 'tratadas' ? 'Nada tratado ainda.' : 'Nenhuma novidade por aqui.'}
+            {aba === 'tratadas' ? 'Nada tratado ainda.' : 'Nenhuma notificação por aqui.'}
           </p>
+        </div>
+      )}
+
+      {/* linha de seleção: fica sempre visível para o "marcar todos" ter onde
+          morar mesmo com nada selecionado */}
+      {visiveis.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap mb-2 px-3 py-2 rounded-lg text-xs"
+          style={{
+            background: sel.length ? 'var(--notion-bg-3)' : 'transparent',
+            border: `1px solid ${sel.length ? 'var(--notion-accent)' : 'transparent'}`,
+          }}>
+          <label className="flex items-center gap-2 cursor-pointer" style={{ color: 'var(--notion-text-2)' }}>
+            <input type="checkbox" checked={todasVisiveis} onChange={alternarTodas}
+              ref={el => { if (el) el.indeterminate = sel.length > 0 && !todasVisiveis }}
+              className="cursor-pointer" style={{ accentColor: 'var(--notion-accent)' }} />
+            {sel.length === 0
+              ? `Selecionar tudo (${visiveis.length})`
+              : abaInteira
+                ? <b style={{ color: 'var(--notion-text)' }}>{totalDaAba} selecionadas — a aba inteira</b>
+                : <b style={{ color: 'var(--notion-text)' }}>{sel.length} selecionada(s)</b>}
+          </label>
+
+          {/* A tela carrega no máximo 300; sem este atalho "selecionar tudo"
+              deixaria centenas para trás sem o usuário perceber. */}
+          {todasVisiveis && !abaInteira && haMaisQueOCarregado && (
+            <button onClick={() => setAbaInteira(true)} className="underline"
+              style={{ color: 'var(--notion-accent)' }}>
+              selecionar todas as {totalDaAba} desta aba
+            </button>
+          )}
+          {abaInteira && (
+            <button onClick={() => { setAbaInteira(false); setSel(visiveis.map(c => c.id)) }} className="underline"
+              style={{ color: 'var(--notion-text-3)' }}>
+              limitar às {visiveis.length} da tela
+            </button>
+          )}
+
+          {sel.length > 0 && (
+            <>
+              <span className="flex-1" />
+              {confirmando ? (
+                <div className="flex items-center gap-2">
+                  <span style={{ color: '#FBBF24' }}>
+                    {LOTE_LABEL[confirmando]} {abaInteira ? totalDaAba : sel.length}{' '}
+                    {(abaInteira ? totalDaAba : sel.length) === 1 ? 'comunicação' : 'comunicações'}?
+                  </span>
+                  <button onClick={() => aplicarLote(confirmando)} disabled={aplicando}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md font-medium"
+                    style={{ background: confirmando === 'excluir' ? '#B91C1C' : 'var(--notion-accent)', color: '#fff', opacity: aplicando ? 0.7 : 1 }}>
+                    {aplicando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Confirmar
+                  </button>
+                  <button onClick={() => setConfirmando(null)} disabled={aplicando}
+                    style={{ color: 'var(--notion-text-3)' }}>Cancelar</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {acoesDaAba.map(a => (
+                    <BotaoLote key={a} acao={a}
+                      // ler/não-ler não destroem nada: vão direto, sem confirmar
+                      onClick={() => (a === 'ler' || a === 'nao_ler') ? aplicarLote(a) : setConfirmando(a)}
+                      disabled={aplicando} />
+                  ))}
+                  <button onClick={() => { setSel([]); setAbaInteira(false) }}
+                    className="px-2 py-1" style={{ color: 'var(--notion-text-3)' }}>limpar</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -180,7 +307,9 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
         {visiveis.map(c => (
           <Card key={c.id} c={c} cliente={clientes[c.cnj]} membros={membros} userId={userId}
             aberta={aberta === c.id} onToggle={() => setAberta(a => (a === c.id ? null : c.id))}
-            somenteLeitura={aba === 'tratadas'} />
+            somenteLeitura={aba === 'tratadas'}
+            selecionada={selecionadas.has(c.id)} algumaSelecionada={sel.length > 0}
+            onSelecionar={() => alternar(c.id)} />
         ))}
       </div>
       </div>
@@ -188,19 +317,56 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
   )
 }
 
+/* ---------------- Botão de ação em lote ---------------- */
+function BotaoLote({ acao, onClick, disabled }: { acao: AcaoLote; onClick: () => void; disabled: boolean }) {
+  const Icone = acao === 'ler' ? MailOpen : acao === 'nao_ler' ? Mail : acao === 'dispensar' ? X : Trash2
+  const destrutiva = acao === 'excluir'
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className="flex items-center gap-1 px-2 py-1 rounded-md transition-colors"
+      style={{
+        background: 'var(--notion-bg-2)',
+        color: destrutiva ? '#F87171' : 'var(--notion-text-2)',
+        border: `1px solid ${destrutiva ? 'rgba(248,113,113,0.4)' : 'var(--notion-border)'}`,
+        opacity: disabled ? 0.6 : 1,
+      }}>
+      <Icone className="w-3 h-3" />
+      {acao === 'ler' ? 'Lidas' : acao === 'nao_ler' ? 'Não lidas' : acao === 'dispensar' ? 'Dispensar' : 'Excluir'}
+    </button>
+  )
+}
+
 /* ---------------- Card de uma comunicação ---------------- */
-function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura }: {
+function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, selecionada, algumaSelecionada, onSelecionar }: {
   c: Comunicacao; cliente?: ClienteDoProcesso; membros: Membro[]; userId: string
   aberta: boolean; onToggle: () => void; somenteLeitura: boolean
+  selecionada: boolean; algumaSelecionada: boolean; onSelecionar: () => void
 }) {
   const router = useRouter()
   const cls = c.classificacao
   const cor = TIPO_COR[cls?.tipo || 'outro'] || '#94A3B8'
 
   return (
-    <div className="rounded-lg border overflow-hidden"
-      style={{ background: 'var(--notion-bg-2)', borderColor: c.cancelada ? 'rgba(248,113,113,0.5)' : 'var(--notion-border)' }}>
-      <button onClick={onToggle} className="w-full text-left px-3 py-2.5 hover:bg-[var(--notion-bg-3)] transition-colors">
+    <div className="group rounded-lg border overflow-hidden"
+      style={{
+        background: selecionada ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)',
+        borderColor: selecionada ? 'var(--notion-accent)'
+          : c.cancelada ? 'rgba(248,113,113,0.5)' : 'var(--notion-border)',
+      }}>
+      <div className="flex items-start">
+        {/* fora do <button> de propósito: checkbox dentro de botão é HTML
+            inválido e o clique acionaria os dois. Aparece no hover, e fica
+            fixa assim que existe seleção — some no meio de um lote é pior que
+            um pouco de ruído visual. */}
+        <label onClick={e => e.stopPropagation()}
+          className="pl-3 pt-3 pr-0.5 cursor-pointer transition-opacity"
+          style={{ opacity: selecionada || algumaSelecionada ? 1 : undefined }}>
+          <input type="checkbox" checked={selecionada} onChange={onSelecionar}
+            aria-label="Selecionar comunicação"
+            className={`cursor-pointer transition-opacity ${selecionada || algumaSelecionada ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
+            style={{ accentColor: 'var(--notion-accent)' }} />
+        </label>
+      <button onClick={onToggle} className="flex-1 min-w-0 text-left px-3 py-2.5 hover:bg-[var(--notion-bg-3)] transition-colors">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -259,6 +425,7 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura }:
             : <ChevronDown className="w-4 h-4 flex-shrink-0 mt-1" style={{ color: 'var(--notion-text-3)' }} />}
         </div>
       </button>
+      </div>
 
       {aberta && (
         <div className="px-3 pb-3 border-t pt-3" style={{ borderColor: 'var(--notion-border)' }}>
