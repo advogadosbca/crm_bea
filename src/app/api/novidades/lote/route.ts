@@ -28,6 +28,22 @@ const ACOES: Acao[] = ['ler', 'nao_ler', 'dispensar', 'excluir']
 /** Teto de segurança: mesmo "selecionar todas" não deve virar update infinito. */
 const MAX = 2000
 
+/**
+ * Quantos ids cabem numa chamada ao PostgREST.
+ *
+ * O filtro `.in('id', [...])` viaja na URI (`id=in.(uuid,uuid,...)`), não no
+ * corpo. Com os 904 itens da caixa real isso dava ~33 KB de URI e o proxy
+ * respondia "URI too long" — a ação em lote simplesmente não acontecia. 100
+ * UUIDs deixam a URI em ~4 KB, dentro do limite de qualquer proxy.
+ */
+const POR_CHAMADA = 100
+
+const emLotes = <T,>(itens: T[], n: number): T[][] => {
+  const out: T[][] = []
+  for (let i = 0; i < itens.length; i += n) out.push(itens.slice(i, i + n))
+  return out
+}
+
 interface LinhaSelecionavel {
   id: string
   status: string
@@ -60,11 +76,13 @@ export async function POST(req: Request) {
 
   if (Array.isArray(body.ids) && body.ids.length) {
     const ids = [...new Set(body.ids.map(String))].slice(0, MAX)
-    const { data } = await admin.from('comunicacoes')
-      .select('id, status, responsaveis, classificacao')
-      .eq('workspace_id', profile.workspace_id)   // nunca confiar no id que veio do navegador
-      .in('id', ids)
-    alvo = (data || []) as LinhaSelecionavel[]
+    for (const fatia of emLotes(ids, POR_CHAMADA)) {
+      const { data } = await admin.from('comunicacoes')
+        .select('id, status, responsaveis, classificacao')
+        .eq('workspace_id', profile.workspace_id)   // nunca confiar no id que veio do navegador
+        .in('id', fatia)
+      alvo.push(...((data || []) as LinhaSelecionavel[]))
+    }
   } else if (body.todas && typeof body.todas === 'object') {
     const aba = String(body.todas.aba || 'acao')
     const soMinhas = body.todas.soMinhas === true
@@ -114,8 +132,21 @@ export async function POST(req: Request) {
       }
     : { status: 'excluida', excluida_por: profile.id, excluida_em: agora, lida_em: agora }
 
-  const { error } = await admin.from('comunicacoes').update(patch).in('id', ids)
-  if (error) return Response.json({ error: error.message }, { status: 400 })
+  // Falha no meio deixa o lote pela metade, e é o certo: o que já mudou está
+  // correto, e repetir a ação é idempotente (marcar lida de novo, excluir de
+  // novo — mesmo resultado). Melhor gravar o que deu e dizer quanto foi do que
+  // desfazer trabalho bom por causa de um pedaço.
+  let gravadas = 0
+  for (const fatia of emLotes(ids, POR_CHAMADA)) {
+    const { error } = await admin.from('comunicacoes').update(patch).in('id', fatia)
+    if (error) {
+      return Response.json(
+        { error: `${error.message} (${gravadas} de ${ids.length} já aplicadas)` },
+        { status: 400 },
+      )
+    }
+    gravadas += fatia.length
+  }
 
   // Uma entrada de auditoria para o lote inteiro, não uma por linha: 900
   // registros iguais afogariam a tela de auditoria e não contariam nada que

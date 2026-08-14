@@ -122,8 +122,6 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
 
   const selecionadas = useMemo(() => new Set(sel), [sel])
   const todasVisiveis = visiveis.length > 0 && visiveis.every(c => selecionadas.has(c.id))
-  // quantas a aba tem de verdade, incluindo o que não coube no carregamento
-  const totalDaAba = aba === 'tratadas' ? tratadas.length : totalNovas
   const haMaisQueOCarregado = aba !== 'tratadas' && totalNovas > novas.length
 
   function alternar(id: string) {
@@ -250,16 +248,20 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
             {sel.length === 0
               ? `Selecionar tudo (${visiveis.length})`
               : abaInteira
-                ? <b style={{ color: 'var(--notion-text)' }}>{totalDaAba} selecionadas — a aba inteira</b>
+                ? <b style={{ color: 'var(--notion-text)' }}>a aba inteira selecionada</b>
                 : <b style={{ color: 'var(--notion-text)' }}>{sel.length} selecionada(s)</b>}
           </label>
 
           {/* A tela carrega no máximo 300; sem este atalho "selecionar tudo"
-              deixaria centenas para trás sem o usuário perceber. */}
+              deixaria centenas para trás sem o usuário perceber.
+              Sem número de propósito: o total exato da ABA depende do filtro de
+              classificação, que só o servidor aplica — a caixa tem 904, mas
+              "Precisa de ação" e "Informativas" repartem esse bolo. Quem diz
+              quantas foram é a resposta, depois de aplicar. */}
           {todasVisiveis && !abaInteira && haMaisQueOCarregado && (
             <button onClick={() => setAbaInteira(true)} className="underline"
               style={{ color: 'var(--notion-accent)' }}>
-              selecionar todas as {totalDaAba} desta aba
+              selecionar todas desta aba, inclusive as {totalNovas - novas.length} não carregadas
             </button>
           )}
           {abaInteira && (
@@ -275,8 +277,9 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
               {confirmando ? (
                 <div className="flex items-center gap-2">
                   <span style={{ color: '#FBBF24' }}>
-                    {LOTE_LABEL[confirmando]} {abaInteira ? totalDaAba : sel.length}{' '}
-                    {(abaInteira ? totalDaAba : sel.length) === 1 ? 'comunicação' : 'comunicações'}?
+                    {abaInteira
+                      ? `${LOTE_LABEL[confirmando]} TODAS as comunicações desta aba?`
+                      : `${LOTE_LABEL[confirmando]} ${sel.length} ${sel.length === 1 ? 'comunicação' : 'comunicações'}?`}
                   </span>
                   <button onClick={() => aplicarLote(confirmando)} disabled={aplicando}
                     className="flex items-center gap-1 px-2 py-1 rounded-md font-medium"
