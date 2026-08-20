@@ -12,8 +12,8 @@ import type { TipoComunicacao } from '@/lib/ia-classificacao'
  * ficam num lugar só, e ninguém aprova pulando essa lógica pelo PostgREST.
  *
  * TRAVAS DE IDEMPOTÊNCIA
- *  - aprovar de novo devolve a tarefa já criada, não cria outra (nem pendência,
- *    nem linha de audiência, nem cartão no Quadro de Tarefas);
+ *  - aprovar de novo devolve o que já foi criado, não duplica (nem o cartão do
+ *    Quadro de Tarefas, nem a linha de audiência);
  *  - `webhook_enviado_em` impede mandar a mesma mensagem duas vezes ao cliente.
  */
 export async function POST(req: Request) {
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   const d = (body.dados || {}) as Partial<DadosAprovacao>
   const dados: DadosAprovacao = {
     tipo: (d.tipo || 'outro') as TipoComunicacao,
-    tipoPendencia: String(d.tipoPendencia || ''),
+    tipoTarefa: String(d.tipoTarefa || ''),
     prioridade: String(d.prioridade || 'Média'),
     dataRetorno: d.dataRetorno || null,
     membros: Array.isArray(d.membros) ? d.membros.map(String) : [],
@@ -71,12 +71,17 @@ export async function POST(req: Request) {
   const mapa = await clientesPorProcesso(admin, profile.workspace_id, [com.cnj as string])
   const cliente: ClienteDoProcesso | undefined = mapa[com.cnj as string]
 
-  // já aprovada: devolve o que existe em vez de duplicar
-  let pendenciaRowId = com.pendencia_row_id as string | null
+  // Já aprovada: devolve o que existe em vez de duplicar.
+  //
+  // A trava é o STATUS, não o id de uma das linhas geradas. Já foi
+  // `pendencia_row_id`, e isso amarrava a idempotência da aprovação a um quadro
+  // que hoje nem é mais alimentado — comunicação aprovada depois da mudança
+  // ficaria para sempre com o campo nulo e aceitaria ser aprovada de novo, cada
+  // clique fazendo um cartão novo.
   let audienciaRowId = com.audiencia_row_id as string | null
   let cartaoId = com.tarefa_card_id as string | null
 
-  if (!pendenciaRowId) {
+  if (com.status !== 'aprovada') {
     // o cartão do Quadro carrega a publicação inteira: quem for cumprir o prazo
     // lê o que o juiz mandou sem voltar para a Central de Novidades
     const teor: TeorComunicacao = {
@@ -88,13 +93,21 @@ export async function POST(req: Request) {
       dataPublicacao: (com.data_publicacao as string) || null,
     }
 
-    const r = await criarTarefas({
-      admin, workspaceId: profile.workspace_id, autorId: profile.id,
-      cnj: com.cnj as string,
-      cliente: cliente?.nome || '', clienteRowId: cliente?.clienteRowId || null,
-      dados, teor,
-    })
-    pendenciaRowId = r.pendenciaRowId
+    // Se a criação da tarefa falhar, a comunicação NÃO é marcada como aprovada:
+    // ela continua na caixa, com o motivo na tela, para o advogado tentar de
+    // novo. O contrário — "aprovada" sem tarefa nenhuma — é uma intimação
+    // perdida com aparência de resolvida.
+    let r: Awaited<ReturnType<typeof criarTarefas>>
+    try {
+      r = await criarTarefas({
+        admin, workspaceId: profile.workspace_id, autorId: profile.id,
+        cnj: com.cnj as string,
+        cliente: cliente?.nome || '', clienteRowId: cliente?.clienteRowId || null,
+        dados, teor,
+      })
+    } catch (e) {
+      return Response.json({ error: `A comunicação continua na caixa: ${(e as Error).message}` }, { status: 400 })
+    }
     audienciaRowId = r.audienciaRowId
     cartaoId = r.cartaoId
 
@@ -103,13 +116,12 @@ export async function POST(req: Request) {
       aprovada_por: profile.id,
       aprovada_em: agora,
       lida_em: com.lida_em || agora,
-      pendencia_row_id: pendenciaRowId,
       audiencia_row_id: audienciaRowId,
       tarefa_card_id: cartaoId,
     }).eq('id', id)
 
     await registrarAuditoria(admin, profile, com, 'aprovou comunicação', {
-      tipo: dados.tipo, pendencia: pendenciaRowId, audiencia: audienciaRowId, cartao: cartaoId,
+      tipo: dados.tipo, audiencia: audienciaRowId, cartao: cartaoId,
     })
   }
 
@@ -125,7 +137,7 @@ export async function POST(req: Request) {
     aviso = { enviado: false, motivo: 'cliente já avisado anteriormente' }
   }
 
-  return Response.json({ ok: true, status: 'aprovada', pendenciaRowId, audienciaRowId, cartaoId, aviso })
+  return Response.json({ ok: true, status: 'aprovada', cartaoId, audienciaRowId, aviso })
 }
 
 /**

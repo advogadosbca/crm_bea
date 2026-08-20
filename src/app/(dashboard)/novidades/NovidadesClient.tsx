@@ -63,7 +63,7 @@ const TIPO_COR: Record<string, string> = {
   acordao: '#34D399', alvara: '#60A5FA', despacho: '#94A3B8',
   arquivamento: '#94A3B8', outro: '#94A3B8',
 }
-const OPCOES_PENDENCIA = [
+const OPCOES_TIPO_TAREFA = [
   '', 'Documentação', 'Requerimento Administrativo', 'Cobrar na Secretaria', 'Cumprimento de Sentença',
   'Manifestar no Processo', 'Alvará judicial', 'FGTS', 'Parcelamento', 'Conversar com cliente',
   'Guia de desarquivamento', 'Aguardando sentença/decisão',
@@ -135,7 +135,7 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
   }
 
   /** Ações que fazem sentido na aba atual. Em "Tratadas" a comunicação já virou
-   *  pendência ou já foi dispensada — só resta tirar da frente. */
+   *  tarefa ou já foi dispensada — só resta tirar da frente. */
   const acoesDaAba: AcaoLote[] = aba === 'tratadas'
     ? (isAdmin ? ['excluir'] : [])
     : (isAdmin ? ['ler', 'nao_ler', 'dispensar', 'excluir'] : ['ler', 'nao_ler', 'dispensar'])
@@ -497,6 +497,8 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, s
           {somenteLeitura ? (
             <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
               {c.status === 'aprovada' ? 'Aprovada' : 'Dispensada'} em {c.aprovada_em ? new Date(c.aprovada_em).toLocaleString('pt-BR') : '—'}
+              {/* só nas aprovações antigas, de quando a aprovação também
+                  alimentava Pendências Processuais */}
               {c.pendencia_row_id && ' · pendência criada'}
               {c.tarefa_card_id && (
                 <>
@@ -530,7 +532,7 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
   const alvo = cls?.prazo?.fim || cls?.evento_data || null
   const semTelefone = !cliente?.telefone
 
-  const [tipoPendencia, setTipoPendencia] = useState(sugerirPendencia(cls?.tipo))
+  const [tipoTarefa, setTipoTarefa] = useState(sugerirTipoTarefa(cls?.tipo))
   const [prioridade, setPrioridade] = useState(sugerirPrioridade(cls?.tipo, alvo))
   const [dataRetorno, setDataRetorno] = useState(alvo || '')
   const [membrosSel, setMembrosSel] = useState<string[]>(c.responsaveis?.length ? c.responsaveis : [userId])
@@ -548,7 +550,7 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
       body: JSON.stringify({
         id: c.id, acao,
         dados: {
-          tipo: cls?.tipo || 'outro', tipoPendencia, prioridade,
+          tipo: cls?.tipo || 'outro', tipoTarefa, prioridade,
           dataRetorno: dataRetorno || null, membros: membrosSel,
           criarAudiencia: criarAud, audienciaData: audData || null, audienciaHora: cls?.evento_hora || null,
         },
@@ -574,9 +576,9 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Tipo de pendência">
-          <Select value={tipoPendencia} onChange={e => setTipoPendencia(e.target.value)}>
-            {OPCOES_PENDENCIA.map(o => <option key={o} value={o}>{o || '— escolher —'}</option>)}
+        <Field label="Tipo de tarefa">
+          <Select value={tipoTarefa} onChange={e => setTipoTarefa(e.target.value)}>
+            {OPCOES_TIPO_TAREFA.map(o => <option key={o} value={o}>{o || '— escolher —'}</option>)}
           </Select>
         </Field>
         <Field label="Prioridade">
@@ -663,14 +665,14 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
       </div>
 
       <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
-        Aprovar cria a linha em Pendências Processuais e um cartão no Quadro de Tarefas
-        (coluna &ldquo;A fazer&rdquo;), com o teor da publicação na descrição.
+        Aprovar cria um cartão no Quadro de Tarefas (coluna &ldquo;A fazer&rdquo;), com o teor
+        da publicação na descrição.
       </p>
     </div>
   )
 }
 
-function sugerirPendencia(tipo?: string) {
+function sugerirTipoTarefa(tipo?: string) {
   const m: Record<string, string> = {
     audiencia: 'Conversar com cliente', pericia: 'Conversar com cliente',
     prazo: 'Manifestar no Processo', sentenca: 'Manifestar no Processo',

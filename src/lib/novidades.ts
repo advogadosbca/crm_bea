@@ -2,34 +2,24 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TipoComunicacao } from './ia-classificacao'
 
 /**
- * Aprovação de uma comunicação: vira tarefa nos quadros que já existem.
+ * Aprovação de uma comunicação: vira um cartão no Quadro de Tarefas do /geral,
+ * com o TEOR da publicação na descrição.
  *
- * Não há quadro novo. `Pendências Processuais` já tem a forma certa (Número do
- * Processo, Status, Data de Retorno, Membros, Prioridade, Tipo de Pendência), e
- * `Audiências` já tem o fluxo de lembrete ao cliente (1ª/2ª Comunicação e
- * Confirmação). Aprovar cria sempre uma pendência e, quando for audiência,
- * também a linha de audiência.
+ * UM LUGAR SÓ, DE PROPÓSITO. Por um tempo a aprovação criava também uma linha
+ * em `Pendências Processuais`, e o resultado foi a mesma tarefa em dois lugares:
+ * duas listas para conferir, duas para dar baixa, e nenhuma garantia de que
+ * concordassem. O quadro ganhou porque é onde a equipe trabalha o dia a dia — e
+ * porque ele carrega o que a pendência não carregava: o texto da publicação
+ * dentro do próprio cartão, sem obrigar a voltar à Central de Novidades.
  *
- * E cria também um cartão no Quadro de Tarefas do /geral, com o TEOR da
- * publicação na descrição. A pendência é o controle (prazo, status, quem
- * responde); o cartão é onde a equipe trabalha o dia a dia — sem o teor ali
- * dentro, ler o que o juiz mandou exigia voltar à Central de Novidades.
+ * Nada se perdeu no caminho: a data de retorno virou o prazo do cartão, os
+ * responsáveis viraram os membros, a prioridade virou etiqueta e o cliente virou
+ * o vínculo que faz a tarefa aparecer na ficha dele.
+ *
+ * `Audiências` continua sendo criada à parte quando for o caso — ali não é
+ * controle de tarefa, é o fluxo de 1ª/2ª Comunicação e Confirmação com o
+ * cliente, que o quadro não substitui.
  */
-
-/** Sugestão de "Tipo de Pendência" a partir do que a IA leu. Vazio = o advogado escolhe. */
-const TIPO_PENDENCIA: Record<TipoComunicacao, string> = {
-  audiencia: 'Conversar com cliente',
-  pericia: 'Conversar com cliente',
-  prazo: 'Manifestar no Processo',
-  sentenca: 'Manifestar no Processo',
-  acordao: 'Manifestar no Processo',
-  alvara: 'Alvará judicial',
-  despacho: '',
-  arquivamento: '',
-  outro: '',
-}
-
-export const tipoPendenciaSugerido = (t?: TipoComunicacao | null) => (t ? TIPO_PENDENCIA[t] || '' : '')
 
 /** Rótulo humano do tipo — abre o título do cartão no Quadro de Tarefas. */
 const ROTULO_TIPO: Record<TipoComunicacao, string> = {
@@ -45,8 +35,8 @@ const ROTULO_TIPO: Record<TipoComunicacao, string> = {
 }
 
 /**
- * Prioridade da pendência -> etiqueta do Quadro. Usa as etiquetas que o
- * escritório já criou; se o nome não existir no quadro, o cartão fica sem
+ * Prioridade escolhida na aprovação -> etiqueta do Quadro. Usa as etiquetas que
+ * o escritório já criou; se o nome não existir no quadro, o cartão fica sem
  * etiqueta. Criar etiqueta nova por conta própria encheria a paleta de
  * duplicatas ("Alta" ao lado de "alta prioridade") sem ninguém pedir.
  */
@@ -96,7 +86,7 @@ async function proximaPosicao(admin: SupabaseClient, tableId: string) {
 
 export interface DadosAprovacao {
   tipo: TipoComunicacao
-  tipoPendencia: string
+  tipoTarefa: string
   prioridade: string
   dataRetorno: string | null      // prazo final ou data do evento
   membros: string[]               // profile ids
@@ -107,7 +97,6 @@ export interface DadosAprovacao {
 }
 
 export interface ResultadoAprovacao {
-  pendenciaRowId: string | null
   audienciaRowId: string | null
   cartaoId: string | null
 }
@@ -127,9 +116,9 @@ export interface TeorComunicacao {
 }
 
 /**
- * Cria as linhas. Idempotência é do chamador: a rota só chama isto quando
- * `pendencia_row_id` ainda está nulo, para aprovar duas vezes não gerar duas
- * tarefas.
+ * Cria o cartão (e a linha de audiência, quando for o caso). Idempotência é do
+ * chamador: a rota só chama isto enquanto a comunicação não está aprovada, para
+ * aprovar duas vezes não gerar duas tarefas.
  */
 export async function criarTarefas({ admin, workspaceId, autorId, cnj, cliente, clienteRowId, dados, teor }: {
   admin: SupabaseClient
@@ -143,29 +132,14 @@ export async function criarTarefas({ admin, workspaceId, autorId, cnj, cliente, 
   dados: DadosAprovacao
   teor: TeorComunicacao
 }): Promise<ResultadoAprovacao> {
-  const out: ResultadoAprovacao = { pendenciaRowId: null, audienciaRowId: null, cartaoId: null }
+  const out: ResultadoAprovacao = { audienciaRowId: null, cartaoId: null }
 
-  // ---------- Pendência ----------
-  const pend = await colunasDe(admin, workspaceId, 'pendencias')
-  if (pend) {
-    const d: Record<string, unknown> = {}
-    const set = (nome: string, valor: unknown) => {
-      const c = pend.por(nome)
-      if (c && valor !== null && valor !== undefined && valor !== '') d[c.id] = valor
-    }
-    set('Número do Processo', formatarCnj(cnj))
-    set('Status', valorDeOpcao(pend.por('Status'), 'Pendente'))
-    set('Tipo de Pendência', valorDeOpcao(pend.por('Tipo de Pendência'), dados.tipoPendencia))
-    set('Prioridade', valorDeOpcao(pend.por('Prioridade'), dados.prioridade))
-    set('Data de Retorno', dados.dataRetorno)
-    set('Contato', cliente)
-    if (dados.membros.length) set('Membros', dados.membros)
-
-    const { data } = await admin.from('db_rows').insert({
-      table_id: pend.tableId, data: d, position: await proximaPosicao(admin, pend.tableId),
-    }).select('id').single()
-    out.pendenciaRowId = (data?.id as string) || null
-  }
+  // ---------- Cartão no Quadro de Tarefas ----------
+  // Primeiro, e deixando o erro subir: agora o cartão é o resultado da
+  // aprovação, não um extra. Engolir a falha aqui marcaria a comunicação como
+  // aprovada e tirava ela da caixa sem ter gerado tarefa nenhuma — o advogado
+  // veria "tratada" e a intimação não existiria em lugar nenhum.
+  out.cartaoId = await criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteRowId, dados, teor })
 
   // ---------- Audiência ----------
   if (dados.criarAudiencia && dados.audienciaData) {
@@ -187,15 +161,6 @@ export async function criarTarefas({ admin, workspaceId, autorId, cnj, cliente, 
       out.audienciaRowId = (data?.id as string) || null
     }
   }
-
-  // ---------- Cartão no Quadro de Tarefas ----------
-  // Depois das linhas, e sem derrubar a aprovação se falhar: a pendência já
-  // está gravada e a comunicação já saiu da caixa. Perder o cartão é chato;
-  // estourar aqui deixaria a rota respondendo erro para uma aprovação que
-  // aconteceu, e o advogado aprovaria de novo achando que não pegou.
-  try {
-    out.cartaoId = await criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteRowId, dados, teor })
-  } catch { /* quadro indisponível — a pendência continua valendo */ }
 
   return out
 }
@@ -231,7 +196,7 @@ function descricaoDoCartao(cnj: string, cliente: string, dados: DadosAprovacao, 
   const foro = [teor.tribunal, teor.orgao].filter(Boolean).join(' · ')
   if (foro) linhas.push(`Órgão: ${foro}`)
   if (teor.dataPublicacao) linhas.push(`Publicado em: ${dataBr(teor.dataPublicacao)}`)
-  if (dados.tipoPendencia) linhas.push(`Tipo de pendência: ${dados.tipoPendencia}`)
+  if (dados.tipoTarefa) linhas.push(`Tipo de tarefa: ${dados.tipoTarefa}`)
   if (dados.dataRetorno) linhas.push(`Prazo / data de retorno: ${dataBr(dados.dataRetorno)}`)
   if (dados.criarAudiencia && dados.audienciaData) {
     linhas.push(`Audiência: ${dataBr(dados.audienciaData)}${dados.audienciaHora ? ` às ${dados.audienciaHora}` : ''}`)
@@ -249,9 +214,10 @@ function descricaoDoCartao(cnj: string, cliente: string, dados: DadosAprovacao, 
  * senão a de menor posição. Entrar direto numa coluna de andamento seria mentir
  * sobre o estado da tarefa: ninguém começou nada ainda.
  *
- * Devolve null quando o quadro não tem nenhuma coluna. Não cria coluna sozinho:
- * quadro vazio é escolha do escritório, e inventar estrutura na aprovação de uma
- * intimação é o tipo de surpresa que ninguém pediu.
+ * Estoura se o quadro não tiver coluna nenhuma, em vez de criar uma: quadro
+ * vazio é escolha do escritório, e inventar estrutura na aprovação de uma
+ * intimação é o tipo de surpresa que ninguém pediu. Melhor a aprovação recusar
+ * com o motivo à vista do que aprovar em silêncio sem gerar tarefa.
  */
 async function criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteRowId, dados, teor }: {
   admin: SupabaseClient
@@ -262,10 +228,10 @@ async function criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteR
   clienteRowId: string | null
   dados: DadosAprovacao
   teor: TeorComunicacao
-}): Promise<string | null> {
+}): Promise<string> {
   const { data: listas } = await admin.from('board_lists')
     .select('id, title').eq('workspace_id', workspaceId).order('position')
-  if (!listas?.length) return null
+  if (!listas?.length) throw new Error('O Quadro de Tarefas não tem nenhuma coluna — crie uma (ex.: "A fazer") na aba Geral antes de aprovar.')
   const lista = listas.find(l => String(l.title).trim().toLowerCase() === 'a fazer') || listas[0]
 
   const { count } = await admin.from('board_cards')
@@ -274,11 +240,11 @@ async function criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteR
   // "Prazo · Fulano de Tal — 0010187-76.2026.5.03.0057": o que a tarefa é, de
   // quem é, e em qual processo. Sem cliente cadastrado sobra tipo + processo.
   const titulo = [
-    dados.tipoPendencia || ROTULO_TIPO[dados.tipo] || 'Comunicação',
+    dados.tipoTarefa || ROTULO_TIPO[dados.tipo] || 'Comunicação',
     cliente ? `${cliente} — ${formatarCnj(cnj)}` : formatarCnj(cnj),
   ].join(' · ')
 
-  const { data: cartao } = await admin.from('board_cards').insert({
+  const { data: cartao, error } = await admin.from('board_cards').insert({
     workspace_id: workspaceId,
     list_id: lista.id,
     title: titulo,
@@ -287,10 +253,10 @@ async function criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteR
     position: count ?? 0,
     created_by: autorId,
   }).select('id').single()
-  if (!cartao) return null
+  if (error || !cartao) throw new Error(`não deu para criar o cartão no Quadro de Tarefas: ${error?.message || 'resposta vazia'}`)
   const cardId = cartao.id as string
 
-  // mesmos responsáveis da pendência: a tarefa nasce com dono
+  // responsáveis escolhidos na aprovação: a tarefa nasce com dono
   if (dados.membros.length) {
     await admin.from('board_card_members')
       .insert(dados.membros.map(profile_id => ({ card_id: cardId, profile_id })))
