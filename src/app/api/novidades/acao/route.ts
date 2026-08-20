@@ -1,6 +1,6 @@
 import { getAuthProfile } from '@/lib/auth'
 import { adminClient } from '@/lib/api-auth'
-import { criarTarefas, formatarCnj, type DadosAprovacao } from '@/lib/novidades'
+import { criarTarefas, formatarCnj, type DadosAprovacao, type TeorComunicacao } from '@/lib/novidades'
 import { clientesPorProcesso, telefoneE164, type ClienteDoProcesso } from '@/lib/clientes-por-processo'
 import type { TipoComunicacao } from '@/lib/ia-classificacao'
 
@@ -12,7 +12,8 @@ import type { TipoComunicacao } from '@/lib/ia-classificacao'
  * ficam num lugar só, e ninguém aprova pulando essa lógica pelo PostgREST.
  *
  * TRAVAS DE IDEMPOTÊNCIA
- *  - aprovar de novo devolve a tarefa já criada, não cria outra;
+ *  - aprovar de novo devolve a tarefa já criada, não cria outra (nem pendência,
+ *    nem linha de audiência, nem cartão no Quadro de Tarefas);
  *  - `webhook_enviado_em` impede mandar a mesma mensagem duas vezes ao cliente.
  */
 export async function POST(req: Request) {
@@ -73,14 +74,29 @@ export async function POST(req: Request) {
   // já aprovada: devolve o que existe em vez de duplicar
   let pendenciaRowId = com.pendencia_row_id as string | null
   let audienciaRowId = com.audiencia_row_id as string | null
+  let cartaoId = com.tarefa_card_id as string | null
 
   if (!pendenciaRowId) {
+    // o cartão do Quadro carrega a publicação inteira: quem for cumprir o prazo
+    // lê o que o juiz mandou sem voltar para a Central de Novidades
+    const teor: TeorComunicacao = {
+      texto: String(com.texto || ''),
+      resumo: String((com.classificacao as { resumo?: string } | null)?.resumo || ''),
+      link: String(com.link || ''),
+      tribunal: String(com.tribunal || ''),
+      orgao: String(com.orgao || ''),
+      dataPublicacao: (com.data_publicacao as string) || null,
+    }
+
     const r = await criarTarefas({
-      admin, workspaceId: profile.workspace_id, cnj: com.cnj as string,
-      cliente: cliente?.nome || '', dados,
+      admin, workspaceId: profile.workspace_id, autorId: profile.id,
+      cnj: com.cnj as string,
+      cliente: cliente?.nome || '', clienteRowId: cliente?.clienteRowId || null,
+      dados, teor,
     })
     pendenciaRowId = r.pendenciaRowId
     audienciaRowId = r.audienciaRowId
+    cartaoId = r.cartaoId
 
     await admin.from('comunicacoes').update({
       status: 'aprovada',
@@ -89,10 +105,11 @@ export async function POST(req: Request) {
       lida_em: com.lida_em || agora,
       pendencia_row_id: pendenciaRowId,
       audiencia_row_id: audienciaRowId,
+      tarefa_card_id: cartaoId,
     }).eq('id', id)
 
     await registrarAuditoria(admin, profile, com, 'aprovou comunicação', {
-      tipo: dados.tipo, pendencia: pendenciaRowId, audiencia: audienciaRowId,
+      tipo: dados.tipo, pendencia: pendenciaRowId, audiencia: audienciaRowId, cartao: cartaoId,
     })
   }
 
@@ -108,7 +125,7 @@ export async function POST(req: Request) {
     aviso = { enviado: false, motivo: 'cliente já avisado anteriormente' }
   }
 
-  return Response.json({ ok: true, status: 'aprovada', pendenciaRowId, audienciaRowId, aviso })
+  return Response.json({ ok: true, status: 'aprovada', pendenciaRowId, audienciaRowId, cartaoId, aviso })
 }
 
 /**

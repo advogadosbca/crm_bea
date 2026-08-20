@@ -46,6 +46,7 @@ export interface Comunicacao {
   cancelada: boolean
   detectado_em: string
   pendencia_row_id: string | null
+  tarefa_card_id: string | null
   webhook_enviado_em: string | null
   aprovada_em?: string | null
 }
@@ -497,6 +498,14 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, s
             <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
               {c.status === 'aprovada' ? 'Aprovada' : 'Dispensada'} em {c.aprovada_em ? new Date(c.aprovada_em).toLocaleString('pt-BR') : '—'}
               {c.pendencia_row_id && ' · pendência criada'}
+              {c.tarefa_card_id && (
+                <>
+                  {' · '}
+                  <a href={`/geral?card=${c.tarefa_card_id}`} style={{ color: 'var(--notion-accent)' }}>
+                    abrir tarefa no quadro →
+                  </a>
+                </>
+              )}
               {c.webhook_enviado_em && ' · cliente avisado'}
             </p>
           ) : (
@@ -652,6 +661,11 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
           <X className="w-3.5 h-3.5" /> Dispensar
         </button>
       </div>
+
+      <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+        Aprovar cria a linha em Pendências Processuais e um cartão no Quadro de Tarefas
+        (coluna &ldquo;A fazer&rdquo;), com o teor da publicação na descrição.
+      </p>
     </div>
   )
 }
