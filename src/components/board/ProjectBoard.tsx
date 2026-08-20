@@ -13,7 +13,7 @@ import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
-  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle,
+  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -22,6 +22,8 @@ export interface BList { id: string; title: string; position: number }
 export interface BCard {
   id: string; list_id: string; title: string; description?: string | null
   due_date?: string | null; completed?: boolean; position: number; members: string[]; labels: string[]
+  /** desde quando está encerrada (concluída ou em "Finalizado"); nula se está viva */
+  encerrado_em?: string | null
 }
 interface Activity { id: string; user_id: string | null; kind: string; text: string; created_at: string }
 
@@ -31,6 +33,19 @@ export interface ChecklistItem { id: string; text: string; done: boolean }
 export interface Checklist { title: string; items: ChecklistItem[] }
 /** checklist de outro cartão oferecida como modelo na hora de criar uma nova */
 interface ChecklistModelo { id: string; cartao: string; titulo: string; itens: string[] }
+
+/**
+ * Quanto tempo uma tarefa encerrada ainda ocupa espaço no quadro.
+ *
+ * "Encerrada" é concluída OU parada em "Finalizado" — quem carimba a data é o
+ * trigger `board_cards_encerramento` no banco, e ele zera o carimbo quando a
+ * tarefa é reaberta ou volta para uma coluna de trabalho. Então os 45 dias
+ * contam do ÚLTIMO encerramento, não do primeiro.
+ *
+ * Sair do quadro não é ser apagada: o cartão continua no banco, continua na
+ * ficha do cliente e volta à vista pelo botão "mostrar encerradas".
+ */
+const DIAS_ATE_SUMIR = 45
 
 // paleta oficial (10 cores Notion)
 const LABEL_COLORS = ['#94A3B8', '#9B9A97', '#A27763', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444']
@@ -84,6 +99,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   // filtro por responsável: vazio = todos; '__none__' = cartões sem ninguém
   const [filtro, setFiltro] = useState<string[]>([])
   const [soAtrasadas, setSoAtrasadas] = useState(false)
+  const [verEncerradas, setVerEncerradas] = useState(false)
 
   useEffect(() => { setLists(initLists) }, [initLists])
   useEffect(() => { setCards(initCards) }, [initCards])
@@ -155,11 +171,20 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     setCards(cs => cs.map(c => c.id === id ? { ...c, ...patch } : c))
   }, [])
 
+  // busca na lista inteira, e não no que está à vista: o link ?card= da ficha
+  // do cliente precisa abrir o cartão mesmo que ele já tenha saído do quadro
   const current = cards.find(c => c.id === openCard) || null
 
+  // Encerrada há tempo demais some do quadro — dela não sai mais trabalho, e
+  // ocupando coluna ela empurra para baixo o que ainda precisa de alguém.
+  const saiuDoQuadro = (c: BCard) =>
+    !!c.encerrado_em && Date.now() - Date.parse(c.encerrado_em) > DIAS_ATE_SUMIR * 864e5
+  const encerradas = cards.filter(saiuDoQuadro)
+  const noQuadro = verEncerradas ? cards : cards.filter(c => !saiuDoQuadro(c))
+
   // pessoas que realmente aparecem em algum cartão (não polui a barra com o time inteiro)
-  const comCartao = members.filter(m => cards.some(c => c.members.includes(m.id)))
-  const temSemResponsavel = cards.some(c => c.members.length === 0)
+  const comCartao = members.filter(m => noQuadro.some(c => c.members.includes(m.id)))
+  const temSemResponsavel = noQuadro.some(c => c.members.length === 0)
   const toggleFiltro = (id: string) => setFiltro(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
 
   // Atraso: prazo 9, hoje 10 => 1 dia atrasada. Sem carência — comparação por dia.
@@ -173,14 +198,14 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   }
   const corDoAtraso = (dias: number) => dias > 30 ? '#DC2626' : dias > 7 ? '#EF4444' : '#F87171'
 
-  const atrasos = cards.map(diasDeAtraso).filter((d): d is number => d !== null)
+  const atrasos = noQuadro.map(diasDeAtraso).filter((d): d is number => d !== null)
   const criticas = atrasos.filter(d => d > 30).length
   const medias = atrasos.filter(d => d > 7 && d <= 30).length
   const recentes = atrasos.filter(d => d <= 7).length
 
   const porResponsavel = filtro.length
-    ? cards.filter(c => filtro.some(f => f === '__none__' ? c.members.length === 0 : c.members.includes(f)))
-    : cards
+    ? noQuadro.filter(c => filtro.some(f => f === '__none__' ? c.members.length === 0 : c.members.includes(f)))
+    : noQuadro
   const visiveis = soAtrasadas ? porResponsavel.filter(c => diasDeAtraso(c) !== null) : porResponsavel
 
   return (
@@ -209,6 +234,22 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
         </button>
       )}
 
+      {/* Encerradas há mais de 45 dias saem do quadro. O aviso fica porque
+          sumiço silencioso em quadro de escritório vira "cadê a tarefa?" — e
+          porque o cartão não foi apagado, só está fora de vista. */}
+      {encerradas.length > 0 && (
+        <button onClick={() => setVerEncerradas(v => !v)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 mb-3 rounded-lg text-xs transition-colors hover:bg-[var(--notion-bg-3)]"
+          style={{
+            color: 'var(--notion-text-3)',
+            border: `1px solid ${verEncerradas ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
+          }}>
+          <Archive className="w-3.5 h-3.5 flex-shrink-0" />
+          {encerradas.length} {encerradas.length === 1 ? 'tarefa encerrada' : 'tarefas encerradas'} há mais de {DIAS_ATE_SUMIR} dias
+          <span style={{ color: 'var(--notion-accent)' }}>· {verEncerradas ? 'esconder' : 'mostrar'}</span>
+        </button>
+      )}
+
       {/* filtro por responsável — ver tudo ou só os prazos de uma pessoa */}
       {(comCartao.length > 0 || temSemResponsavel) && (
         <div className="flex items-center gap-1.5 flex-wrap mb-3">
@@ -220,11 +261,11 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
               color: filtro.length === 0 ? 'var(--notion-text)' : 'var(--notion-text-2)',
               border: `1px solid ${filtro.length === 0 ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
             }}>
-            Todos <span style={{ color: 'var(--notion-text-3)' }}>{cards.length}</span>
+            Todos <span style={{ color: 'var(--notion-text-3)' }}>{noQuadro.length}</span>
           </button>
           {comCartao.map(m => {
             const on = filtro.includes(m.id)
-            const n = cards.filter(c => c.members.includes(m.id)).length
+            const n = noQuadro.filter(c => c.members.includes(m.id)).length
             return (
               <button key={m.id} onClick={() => toggleFiltro(m.id)} title={`Só os prazos de ${m.full_name}`}
                 className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md text-xs transition-colors"
@@ -253,7 +294,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
           )}
           {filtro.length > 0 && (
             <button onClick={() => setFiltro([])} className="flex items-center gap-1 px-2 py-1 rounded-md text-xs" style={{ color: 'var(--notion-text-3)' }}>
-              <X className="w-3 h-3" /> limpar ({visiveis.length} de {cards.length})
+              <X className="w-3 h-3" /> limpar ({visiveis.length} de {noQuadro.length})
             </button>
           )}
         </div>

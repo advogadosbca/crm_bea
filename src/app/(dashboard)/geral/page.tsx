@@ -28,7 +28,7 @@ export default async function GeralPage({ searchParams }: {
       .order('position', { ascending: true }),
     supabase.from('board_lists').select('id, title, position').eq('workspace_id', workspaceId || '').order('position'),
     supabase.from('board_labels').select('id, name, color').eq('workspace_id', workspaceId || ''),
-    supabase.from('board_cards').select('id, list_id, title, description, due_date, completed, position, board_card_members(profile_id), board_card_labels(label_id)').eq('workspace_id', workspaceId || '').order('position'),
+    supabase.from('board_cards').select('id, list_id, title, description, due_date, completed, encerrado_em, position, board_card_members(profile_id), board_card_labels(label_id)').eq('workspace_id', workspaceId || '').order('position'),
   ])
 
   // tabelas dinâmicas do Geral (Alerta / Prazos) + fontes
@@ -73,9 +73,9 @@ export default async function GeralPage({ searchParams }: {
   const cols = kanbanCols || []
   const byBoard = (k: string) => cols.filter(c => c.board_key === k).map(({ id, label, color, position }) => ({ id, label, color, position }))
 
-  const boardCards = (boardCardsRaw || []).map((c: { id: string; list_id: string; title: string; description?: string; due_date?: string; completed?: boolean; position: number; board_card_members?: { profile_id: string }[]; board_card_labels?: { label_id: string }[] }) => ({
+  const boardCards = (boardCardsRaw || []).map((c: { id: string; list_id: string; title: string; description?: string; due_date?: string; completed?: boolean; encerrado_em?: string; position: number; board_card_members?: { profile_id: string }[]; board_card_labels?: { label_id: string }[] }) => ({
     id: c.id, list_id: c.list_id, title: c.title, description: c.description, due_date: c.due_date,
-    completed: !!c.completed, position: c.position,
+    completed: !!c.completed, encerrado_em: c.encerrado_em || null, position: c.position,
     members: (c.board_card_members || []).map(m => m.profile_id),
     labels: (c.board_card_labels || []).map(l => l.label_id),
   }))
