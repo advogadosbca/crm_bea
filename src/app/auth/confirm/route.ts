@@ -12,12 +12,9 @@ export async function GET(request: NextRequest) {
   let response = NextResponse.redirect(redirectTo)
 
   const supabase = createServerClient(
-    process.env.SUPABASE_INTERNAL_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      // Mesmo nome de cookie usado nos demais clients (browser/server/proxy),
-      // senão a sessão gravada aqui não é lida em /definir-senha.
-      cookieOptions: { name: 'sb-crm-auth' },
       cookies: {
         getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet) {

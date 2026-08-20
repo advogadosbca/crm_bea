@@ -34,17 +34,7 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault(); setLoading(true); setError('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      const m = (error.message || '').toLowerCase()
-      let msg = 'E-mail ou senha incorretos.'
-      if (/not confirmed|confirm/.test(m))
-        msg = 'Seu e-mail ainda não foi confirmado. Abra o link do convite mais recente ou peça um novo ao administrador.'
-      else if (/rate|too many|429/.test(m))
-        msg = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.'
-      else if (error.message && !/invalid login credentials/i.test(error.message))
-        msg = error.message
-      setError(msg); setLoading(false); return
-    }
+    if (error) { setError('E-mail ou senha incorretos.'); setLoading(false); return }
     router.push('/')
   }
 
