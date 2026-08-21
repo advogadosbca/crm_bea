@@ -128,7 +128,7 @@ export async function POST(req: Request) {
   // ---------- aviso ao cliente (opcional, sempre explícito) ----------
   let aviso: Record<string, unknown> = { enviado: false }
   if (body.avisarCliente === true && !com.webhook_enviado_em) {
-    aviso = await avisarCliente(admin, profile.workspace_id, com, String(body.mensagemCliente || ''), cliente)
+    aviso = await avisarCliente(admin, profile.workspace_id, com, String(body.mensagemCliente || ''), cliente, dados)
     if (aviso.enviado) {
       await admin.from('comunicacoes').update({ webhook_enviado_em: new Date().toISOString() }).eq('id', id)
       await registrarAuditoria(admin, profile, com, 'avisou cliente', { canal: 'webhook' })
@@ -139,6 +139,13 @@ export async function POST(req: Request) {
 
   return Response.json({ ok: true, status: 'aprovada', cartaoId, audienciaRowId, aviso })
 }
+
+type ClassificacaoResumida = {
+  tipo?: string
+  resumo?: string
+  evento_data?: string | null
+  evento_hora?: string | null
+} | null
 
 /**
  * Dispara o webhook do n8n com o aviso ao cliente. O CRM não fala com o
@@ -152,6 +159,7 @@ export async function POST(req: Request) {
 async function avisarCliente(
   admin: ReturnType<typeof adminClient>, workspaceId: string,
   com: Record<string, unknown>, mensagem: string, cliente?: ClienteDoProcesso,
+  dados?: DadosAprovacao,
 ): Promise<Record<string, unknown>> {
   const { data: cfg } = await admin.from('workspace_secrets')
     .select('webhook_cliente_url').eq('workspace_id', workspaceId).maybeSingle()
@@ -160,6 +168,23 @@ async function avisarCliente(
   if (!mensagem.trim()) return { enviado: false, motivo: 'mensagem vazia' }
   if (!cliente?.nome) return { enviado: false, motivo: 'nenhum cliente vinculado a este processo' }
   if (!cliente.telefone) return { enviado: false, motivo: `cliente ${cliente.nome} está sem telefone no cadastro` }
+
+  // A data da audiência sai daqui pronta, não do texto da mensagem: quem lê o
+  // payload (hoje o n8n, que cria o evento na agenda) não deveria garimpar
+  // "04/11/2026 às 16:10" de uma frase escrita para o cliente — frase que ainda
+  // por cima pode ser editada à mão na tela antes de aprovar.
+  const cls = (com.classificacao || null) as ClassificacaoResumida
+  const audData = dados?.audienciaData || cls?.evento_data || null
+  const audHora = dados?.audienciaHora || cls?.evento_hora || null
+  const audiencia = audData
+    ? {
+        audienciaData: audData,
+        audienciaHora: audHora,
+        // ISO com o offset de Brasília fixo: sem ele o Google Agenda lê como
+        // UTC e joga a audiência três horas para frente.
+        dataHoraAudiencia: audData + 'T' + (audHora || '09:00') + ':00-03:00',
+      }
+    : {}
 
   try {
     const r = await fetch(url, {
@@ -176,6 +201,10 @@ async function avisarCliente(
         tribunal: com.tribunal,
         orgao: com.orgao,
         dataPublicacao: com.data_publicacao,
+        tipo: dados?.tipo || cls?.tipo || null,
+        resumo: cls?.resumo || null,
+        linkPublicacao: com.link || null,
+        ...audiencia,
       }),
       signal: AbortSignal.timeout(20000),
     })
