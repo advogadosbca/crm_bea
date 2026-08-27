@@ -198,6 +198,26 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   }
   const corDoAtraso = (dias: number) => dias > 30 ? '#DC2626' : dias > 7 ? '#EF4444' : '#F87171'
 
+  /**
+   * Ordem dentro da coluna: o que vence primeiro fica em cima.
+   *
+   * Quem não tem prazo vai para o fim (não compete com quem tem data marcada),
+   * e quem já foi concluída/cancelada vai para o fim de tudo — mesmo com prazo
+   * vencido, dela não sai mais trabalho. Empate cai no `position`, que é a
+   * ordem em que os cartões foram criados.
+   */
+  const porPrazo = (a: BCard, b: BCard) => {
+    if (!!a.completed !== !!b.completed) return a.completed ? 1 : -1
+    const pa = a.due_date?.split('T')[0] ?? ''
+    const pb = b.due_date?.split('T')[0] ?? ''
+    if (pa !== pb) {
+      if (!pa) return 1
+      if (!pb) return -1
+      return pa < pb ? -1 : 1
+    }
+    return a.position - b.position
+  }
+
   const atrasos = noQuadro.map(diasDeAtraso).filter((d): d is number => d !== null)
   const criticas = atrasos.filter(d => d > 30).length
   const medias = atrasos.filter(d => d > 7 && d <= 30).length
@@ -302,7 +322,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 
       <ScrollX className="flex gap-3 overflow-x-auto pb-2 items-start">
         {lists.sort((a, b) => a.position - b.position).map(list => {
-          const listCards = visiveis.filter(c => c.list_id === list.id).sort((a, b) => a.position - b.position)
+          const listCards = visiveis.filter(c => c.list_id === list.id).sort(porPrazo)
           return (
             <div key={list.id}
               onDragOver={e => { e.preventDefault(); setOverList(list.id) }}
