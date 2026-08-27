@@ -21,7 +21,7 @@ import { disparaPromocao, promoverLead } from '@/lib/promover-lead'
 import {
   Plus, MoreHorizontal, ArrowUpDown, EyeOff, Trash2, Copy, ArrowLeftToLine, ArrowRightToLine,
   Pencil, Repeat, Check, ChevronRight, Sigma, Table2, Search, X, Smile, PanelRight, Undo2, Lock,
-  Filter, CircleSlash, CircleDot,
+  Filter, CircleSlash, CircleDot, Archive, ArchiveRestore,
 } from 'lucide-react'
 
 interface Member { id: string; full_name: string }
@@ -32,7 +32,8 @@ type Calc = 'none' | 'count' | 'filled' | 'sum' | 'avg' | 'checked'
 let undoOwner: string | null = null
 
 export function DynamicTable({ tableId, initialColumns, initialRows, sources: initialSources = [], members, userId,
-  viewFilters, viewSort, viewGroupColId, viewColorRules, viewSearch, viewQuick, viewId, onColumnsChange, onRowsChange }: {
+  viewFilters, viewSort, viewGroupColId, viewColorRules, viewSearch, viewQuick, viewId, onColumnsChange, onRowsChange,
+  verArquivados = false, onArquivar }: {
   tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources?: DataSource[]; members: Member[]; userId: string
   // configuração de view opcional (Filtrar/Ordenar/Agrupar/Cor condicional). Ausente = comportamento padrão.
   viewFilters?: FilterCond[]; viewSort?: SortCond | null; viewGroupColId?: string | null; viewColorRules?: ColorRule[]; viewSearch?: string
@@ -44,6 +45,10 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   onColumnsChange?: (cols: DBColumn[]) => void
   /** avisa o container quando as linhas mudam (o container também cria/apaga registros) */
   onRowsChange?: (rows: DBRow[]) => void
+  /** true = grade mostrando a gaveta (só os arquivados) em vez dos registros ativos */
+  verArquivados?: boolean
+  /** arquiva/desarquiva um registro — quem escreve no banco é o container */
+  onArquivar?: (rowId: string, arquivar: boolean) => void
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -106,7 +111,9 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 
   // pipeline de exibição: filtros (view) → busca (view) → ordenação (view tem prioridade, senão a do cabeçalho)
   const displayRows = useMemo(() => {
-    let rs = rows
+    // arquivado e ativo nunca aparecem juntos: ou a grade é a operação do dia,
+    // ou é a gaveta. Misturar os dois é justamente o que o escritório reclamou.
+    let rs = rows.filter(r => !!r.arquivado_em === verArquivados)
     if (viewFilters && viewFilters.length) rs = rs.filter(r => matchesFilters(r, columns, viewFilters))
     if (viewQuick) rs = rs.filter(r => matchesQuick(r, columns, viewQuick))
     // vazio/preenchido por coluna: várias colunas filtradas ao mesmo tempo se cruzam (E).
@@ -130,7 +137,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     }
     const s: SortCond | null = (viewSort ?? null) || (sort ? { colId: sort.col, dir: sort.dir } : null)
     return applySort(rs, columns, s)
-  }, [rows, viewFilters, viewQuick, fillFilter, viewSearch, viewSort, sort, columns])
+  }, [rows, verArquivados, viewFilters, viewQuick, fillFilter, viewSearch, viewSort, sort, columns])
 
   // agrupamento opcional (Agrupar por): monta seções ordenadas pela opção da coluna
   const groupCol = viewGroupColId ? columns.find(c => c.id === viewGroupColId) : null
@@ -427,9 +434,18 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
             )}
           </td>
         ))}
-        <td className="w-10 align-middle text-center">
+        <td className="w-[68px] align-middle text-center whitespace-nowrap">
+          {/* arquivar é reversível e some da vista, não do banco: qualquer um da
+              equipe pode; excluir continua só para admin */}
+          {onArquivar && (
+            <button onClick={() => onArquivar(row.id, !row.arquivado_em)}
+              title={row.arquivado_em ? 'Tirar do arquivo' : 'Arquivar (sai da lista, continua no sistema)'}
+              className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
+              {row.arquivado_em ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+            </button>
+          )}
           {isAdmin && (
-            <button onClick={() => deleteRow(row.id)} className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
+            <button onClick={() => deleteRow(row.id)} title="Excluir" className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
@@ -539,13 +555,16 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
                 </Fragment>
               ))
               : displayRows.map(renderRow)}
-            <tr>
-              <td colSpan={visible.length + 1} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                <button onClick={addRow} className="w-full flex items-center gap-1.5 px-2.5 py-2 text-xs hover:bg-[rgba(255,255,255,0.02)] transition-colors" style={{ color: 'var(--notion-text-3)' }}>
-                  <Plus className="w-3.5 h-3.5" /> Nova página
-                </button>
-              </td>
-            </tr>
+            {/* na gaveta não se cria registro: ele nasceria ativo e sumiria da tela */}
+            {!verArquivados && (
+              <tr>
+                <td colSpan={visible.length + 1} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                  <button onClick={addRow} className="w-full flex items-center gap-1.5 px-2.5 py-2 text-xs hover:bg-[rgba(255,255,255,0.02)] transition-colors" style={{ color: 'var(--notion-text-3)' }}>
+                    <Plus className="w-3.5 h-3.5" /> Nova página
+                  </button>
+                </td>
+              </tr>
+            )}
           </tbody>
           <tfoot>
             <tr>

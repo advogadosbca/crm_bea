@@ -28,7 +28,7 @@ import {
   LayoutGrid, Table2, Plus, X, List as ListIcon, Image as ImageIcon, Calendar as CalIcon,
   BarChart3, LayoutDashboard, GanttChart, Rss, Map as MapIcon, MoreHorizontal, Pencil, Copy, Trash2, Repeat, Check,
   Search, SlidersHorizontal, Eye, EyeOff, ArrowUpRight, Paperclip,
-  ChevronRight, Filter, ArrowUpDown, Layers, Palette, Link2, Database, Lock,
+  ChevronRight, Filter, ArrowUpDown, Layers, Palette, Link2, Database, Lock, Archive, ArchiveRestore,
 } from 'lucide-react'
 
 function MenuItem({ icon: Icon, label, onClick, danger, arrow }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean }) {
@@ -219,6 +219,8 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const [q, setQ] = useState('')
   // filtros rápidos por etiqueta (Área, Mensalista, Tribunal...) — valem enquanto a tela está aberta
   const [quick, setQuick] = useState<QuickFilter>({})
+  // gaveta: false = operação do dia (registros ativos), true = só os arquivados
+  const [verArquivados, setVerArquivados] = useState(false)
   const [cfgOpen, setCfgOpen] = useState(false)
   const [cfgTab, setCfgTab] = useState<'menu' | 'layout' | 'visibility' | 'filter' | 'sort' | 'group' | 'color'>('menu')
   const [copied, setCopied] = useState(false)
@@ -277,9 +279,15 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const cardCols = ordered.filter(c => c !== groupCol && c !== titleCol && c !== peopleCol && !isColumnHidden(c, activeId))
   const opt = (col: DBColumn, v: unknown) => (col.config.options || []).find(o => o.id === v || o.label === v)
 
+  // Arquivados ficam fora da vista padrão e só aparecem quando se abre a gaveta.
+  // Um ou outro, nunca os dois juntos: o processo encerrado não pode voltar a
+  // disputar espaço com o que ainda tramita.
+  const arquivados = rows.filter(r => r.arquivado_em)
+  const universo = verArquivados ? arquivados : rows.filter(r => !r.arquivado_em)
+
   // pipeline das views não-tabela: filtros (Filtrar) → busca (lupa) → ordenação (Ordenar)
   const nrm = (s: string) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
-  const baseRows = vcfg.filters.length ? rows.filter(r => matchesFilters(r, columns, vcfg.filters)) : rows
+  const baseRows = vcfg.filters.length ? universo.filter(r => matchesFilters(r, columns, vcfg.filters)) : universo
   const filteredRows = quickCount(quick) ? baseRows.filter(r => matchesQuick(r, columns, quick)) : baseRows
   const searchedRows = q.trim() ? filteredRows.filter(r => {
     const needle = nrm(q)
@@ -339,6 +347,29 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
     const config = { ...col.config, options }
     setColumns(cs => cs.map(c => c.id === colId ? { ...c, config } : c))
     await supabase.from('db_columns').update({ config }).eq('id', colId)
+  }
+
+  /**
+   * Manda o registro para a gaveta (ou tira dela).
+   *
+   * Nada é apagado — some da visualização padrão e continua respondendo às
+   * relações, que é o ponto do pedido: o processo encerrado sai da frente da
+   * equipe e ainda assim aparece na ficha do cliente que voltar anos depois.
+   */
+  async function arquivarRow(rowId: string, arquivar: boolean) {
+    const antes = rows.find(r => r.id === rowId)?.arquivado_em ?? null
+    const arquivado_em = arquivar ? new Date().toISOString() : null
+    setRows(rs => rs.map(r => r.id === rowId ? { ...r, arquivado_em } : r))
+    const { error } = await supabase.from('db_rows').update({ arquivado_em }).eq('id', rowId)
+    if (error) {
+      setRows(rs => rs.map(r => r.id === rowId ? { ...r, arquivado_em: antes } : r))
+      mostrar({ texto: `Não consegui ${arquivar ? 'arquivar' : 'restaurar'}: ${error.message}`, tipo: 'erro' })
+      return
+    }
+    mostrar({
+      texto: arquivar ? 'Arquivado. Fica em "Arquivados", no topo da página.' : 'De volta à lista.',
+      tipo: 'ok',
+    })
   }
   async function moveTo(rowId: string, optValue: string) {
     if (!groupCol) return
@@ -503,14 +534,33 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar..." className="bg-transparent text-xs outline-none w-28" style={{ color: 'var(--notion-text)' }} />
             {q && <button onClick={() => setQ('')} style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>}
           </div>
+          {/* a gaveta só aparece quando existe algo dentro dela — barra limpa para
+              quem nunca arquivou nada */}
+          {(arquivados.length > 0 || verArquivados) && (
+            <button onClick={() => setVerArquivados(v => !v)}
+              title={verArquivados ? 'Voltar para os registros ativos' : 'Ver o que foi arquivado'}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors"
+              style={{
+                background: verArquivados ? 'var(--notion-bg-4)' : 'transparent',
+                color: verArquivados ? 'var(--notion-text)' : 'var(--notion-text-3)',
+                border: `1px solid ${verArquivados ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
+              }}>
+              <Archive className="w-3.5 h-3.5" /> Arquivados
+              <span style={{ color: 'var(--notion-text-3)' }}>{arquivados.length}</span>
+            </button>
+          )}
           <button onClick={() => { setCfgOpen(o => !o); setCfgTab('menu') }} title="Configurações da visualização" className="p-1.5 rounded-md hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
             <SlidersHorizontal className="w-4 h-4" />
           </button>
-          <button onClick={addRowTop} title="Criar um registro e abrir a ficha"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-opacity hover:opacity-90"
-            style={{ background: 'var(--notion-accent)', color: '#fff' }}>
-            <Plus className="w-3.5 h-3.5" /> Novo
-          </button>
+          {/* criar registro dentro da gaveta não faz sentido: ele nasceria ativo
+              e sumiria da tela no mesmo instante */}
+          {!verArquivados && (
+            <button onClick={addRowTop} title="Criar um registro e abrir a ficha"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-opacity hover:opacity-90"
+              style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+              <Plus className="w-3.5 h-3.5" /> Novo
+            </button>
+          )}
           {cfgOpen && (() => {
             const sourceName = sources.find(s => s.id === tableId)?.name || activeView?.name || 'Fonte'
             const visibleCount = ordered.filter(c => !isColumnHidden(c, activeId)).length
@@ -665,11 +715,26 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
         </div>
       </div>
 
-      <QuickFilterBar columns={ordered.filter(c => !isColumnHidden(c, activeId))} quick={quick} onChange={setQuick} total={rows.length} shown={shown.length} />
+      {/* deixar claro que a tela mudou de assunto: sem isso, "cadê os processos?"
+          vira chamado */}
+      {verArquivados && (
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg text-xs" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+          <Archive className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+          <span style={{ color: 'var(--notion-text-2)' }}>
+            Arquivo — {arquivados.length} {arquivados.length === 1 ? 'registro guardado' : 'registros guardados'}. A busca e os filtros valem aqui dentro.
+          </span>
+          <button onClick={() => setVerArquivados(false)} className="ml-auto whitespace-nowrap" style={{ color: 'var(--notion-accent)' }}>
+            voltar aos ativos
+          </button>
+        </div>
+      )}
+
+      <QuickFilterBar columns={ordered.filter(c => !isColumnHidden(c, activeId))} quick={quick} onChange={setQuick} total={universo.length} shown={shown.length} />
 
       {vt === 'table' ? (
         <DynamicTable key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows} sources={sources} members={members} userId={userId}
           viewId={activeId} onColumnsChange={setColumns} onRowsChange={setRows} viewQuick={quick}
+          verArquivados={verArquivados} onArquivar={arquivarRow}
           viewFilters={vcfg.filters} viewSort={vcfg.sort} viewGroupColId={vcfg.groupColId} viewColorRules={vcfg.colorRules} viewSearch={q} />
       ) : vt === 'gallery' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -755,6 +820,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
       {current && (
         <RecordPanel row={current} columns={ordered} members={members} sources={sources} userId={userId}
           onClose={() => setOpenRow(null)} updateCell={updateCell} updateColumnOptions={updateColumnOptions}
+          onArquivar={arquivarRow}
           onDeleted={() => { setRows(rs => rs.filter(r => r.id !== current.id)); setOpenRow(null) }} />
       )}
     </div>
@@ -762,10 +828,11 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
 }
 
 // ============ Painel lateral do registro ============
-function RecordPanel({ row, columns, members, sources, userId, onClose, updateCell, updateColumnOptions, onDeleted }: {
+function RecordPanel({ row, columns, members, sources, userId, onClose, updateCell, updateColumnOptions, onArquivar, onDeleted }: {
   row: DBRow; columns: DBColumn[]; members: Member[]; sources: DataSource[]; userId: string
   onClose: () => void; updateCell: (rowId: string, colId: string, v: unknown) => void
-  updateColumnOptions: (colId: string, o: SelectOption[]) => void; onDeleted: () => void
+  updateColumnOptions: (colId: string, o: SelectOption[]) => void
+  onArquivar: (rowId: string, arquivar: boolean) => void; onDeleted: () => void
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -804,8 +871,20 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
       <Aviso msg={msg} onClose={() => mostrar(null)} />
       <div className="w-full max-w-xl h-full overflow-y-auto animate-slide-in" style={{ background: 'var(--notion-bg)', borderLeft: '1px solid var(--notion-border)' }}>
         <div className="flex items-center justify-between px-6 py-3 sticky top-0 z-10" style={{ background: 'var(--notion-bg)', borderBottom: '1px solid var(--notion-border)' }}>
-          <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Registro</span>
+          <span className="flex items-center gap-2 text-xs" style={{ color: 'var(--notion-text-3)' }}>
+            Registro
+            {row.arquivado_em && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
+                <Archive className="w-3 h-3" /> Arquivado em {new Date(row.arquivado_em).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+          </span>
           <div className="flex items-center gap-1">
+            <button onClick={() => { onArquivar(row.id, !row.arquivado_em); if (!row.arquivado_em) onClose() }}
+              title={row.arquivado_em ? 'Tirar do arquivo e voltar para a lista' : 'Sai da lista, continua no sistema e na ficha do cliente'}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-xs hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-2)' }}>
+              {row.arquivado_em ? <><ArchiveRestore className="w-3.5 h-3.5" /> Desarquivar</> : <><Archive className="w-3.5 h-3.5" /> Arquivar</>}
+            </button>
             {isAdmin && <button onClick={del} className="px-2 py-1 rounded text-xs" style={{ color: '#F87171' }}>Excluir</button>}
             <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>

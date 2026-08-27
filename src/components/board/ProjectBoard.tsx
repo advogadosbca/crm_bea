@@ -13,7 +13,7 @@ import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
-  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive,
+  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive, ArchiveRestore,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -24,6 +24,8 @@ export interface BCard {
   due_date?: string | null; completed?: boolean; position: number; members: string[]; labels: string[]
   /** desde quando está encerrada (concluída ou em "Finalizado"); nula se está viva */
   encerrado_em?: string | null
+  /** quando foi arquivada à mão — sai do quadro na hora, sem esperar os 45 dias */
+  arquivado_em?: string | null
 }
 interface Activity { id: string; user_id: string | null; kind: string; text: string; created_at: string }
 
@@ -46,6 +48,16 @@ interface ChecklistModelo { id: string; cartao: string; titulo: string; itens: s
  * ficha do cliente e volta à vista pelo botão "mostrar encerradas".
  */
 const DIAS_ATE_SUMIR = 45
+
+/**
+ * Coluna que encerra a tarefa só por ela estar ali.
+ *
+ * Mesma lista de nomes da função `board_lista_encerra` no banco — a regra é
+ * duplicada de propósito: aqui ela decide o que a tela oferece (o botão de
+ * arquivar), lá ela decide o que o banco carimba. Mudou uma, mude a outra.
+ */
+const listaEncerra = (titulo?: string) =>
+  ['finalizado', 'finalizada', 'finalizados'].includes((titulo || '').trim().toLowerCase())
 
 // paleta oficial (10 cores Notion)
 const LABEL_COLORS = ['#94A3B8', '#9B9A97', '#A27763', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444']
@@ -120,6 +132,9 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const member = (id: string) => members.find(m => m.id === id)
   const label = (id: string) => labels.find(l => l.id === id)
   const today = new Date().toISOString().split('T')[0]
+  /** encerrada = concluída/cancelada ou parada numa coluna de encerramento */
+  const cardEncerrado = (c: BCard, listId = c.list_id) =>
+    !!c.completed || listaEncerra(lists.find(l => l.id === listId)?.title)
 
   async function log(cardId: string, kind: string, text: string) {
     await supabase.from('board_activity').insert({ card_id: cardId, user_id: userId, kind, text })
@@ -129,7 +144,11 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     if (!dragId) return
     const id = dragId
     const card = cards.find(c => c.id === id)
-    setCards(cs => cs.map(c => c.id === id ? { ...c, list_id: listId } : c))
+    // Arrastar uma arquivada de volta para coluna de trabalho tira ela do
+    // arquivo — é o trigger board_cards_encerramento que manda no banco; aqui
+    // a tela só acompanha, senão o cartão continuaria "arquivado" até o F5.
+    const volta = !!card && !card.completed && !listaEncerra(lists.find(l => l.id === listId)?.title)
+    setCards(cs => cs.map(c => c.id === id ? { ...c, list_id: listId, ...(volta ? { arquivado_em: null } : {}) } : c))
     setDragId(null); setOverList(null)
     if (card && card.list_id !== listId) {
       await supabase.from('board_cards').update({ list_id: listId }).eq('id', id)
@@ -166,6 +185,29 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     await supabase.from('board_lists').delete().eq('id', id)
   }
 
+  /**
+   * Esvazia de uma vez a lista de tarefas já encerradas.
+   *
+   * Existe porque o caso real é "Finalizado" com 57 cartões parados: arquivar um
+   * a um é o tipo de tarefa que ninguém faz, e a coluna continua ocupando a tela.
+   * Só mexe no que já está encerrado — trabalho vivo na mesma lista fica onde
+   * está.
+   */
+  async function arquivarEncerradas(listId: string) {
+    const alvo = cards.filter(c => c.list_id === listId && cardEncerrado(c, listId) && !c.arquivado_em)
+    if (!alvo.length) return
+    if (!confirm(`Arquivar ${alvo.length} ${alvo.length === 1 ? 'tarefa encerrada' : 'tarefas encerradas'} desta lista?\n\nElas saem do quadro mas continuam no sistema, na ficha do cliente e no botão "mostrar".`)) return
+    setListMenu(null)
+    const ids = alvo.map(c => c.id)
+    const agora = new Date().toISOString()
+    setCards(cs => cs.map(c => ids.includes(c.id) ? { ...c, arquivado_em: agora } : c))
+    const { error } = await supabase.from('board_cards').update({ arquivado_em: agora }).in('id', ids)
+    if (error) {
+      setCards(cs => cs.map(c => ids.includes(c.id) ? { ...c, arquivado_em: null } : c))
+      alert(`Não consegui arquivar: ${error.message}`)
+    }
+  }
+
   // mutações de cartão usadas pelo modal
   const patchCard = useCallback((id: string, patch: Partial<BCard>) => {
     setCards(cs => cs.map(c => c.id === id ? { ...c, ...patch } : c))
@@ -175,10 +217,12 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   // do cliente precisa abrir o cartão mesmo que ele já tenha saído do quadro
   const current = cards.find(c => c.id === openCard) || null
 
-  // Encerrada há tempo demais some do quadro — dela não sai mais trabalho, e
-  // ocupando coluna ela empurra para baixo o que ainda precisa de alguém.
+  // Sai do quadro por duas vias: arquivada à mão (na hora) ou encerrada há tempo
+  // demais (sozinha). Dela não sai mais trabalho, e ocupando coluna ela empurra
+  // para baixo o que ainda precisa de alguém.
   const saiuDoQuadro = (c: BCard) =>
-    !!c.encerrado_em && Date.now() - Date.parse(c.encerrado_em) > DIAS_ATE_SUMIR * 864e5
+    !!c.arquivado_em ||
+    (!!c.encerrado_em && Date.now() - Date.parse(c.encerrado_em) > DIAS_ATE_SUMIR * 864e5)
   const encerradas = cards.filter(saiuDoQuadro)
   const noQuadro = verEncerradas ? cards : cards.filter(c => !saiuDoQuadro(c))
 
@@ -254,9 +298,9 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
         </button>
       )}
 
-      {/* Encerradas há mais de 45 dias saem do quadro. O aviso fica porque
-          sumiço silencioso em quadro de escritório vira "cadê a tarefa?" — e
-          porque o cartão não foi apagado, só está fora de vista. */}
+      {/* Arquivadas à mão + encerradas há mais de 45 dias saem do quadro. O aviso
+          fica porque sumiço silencioso em quadro de escritório vira "cadê a
+          tarefa?" — e porque o cartão não foi apagado, só está fora de vista. */}
       {encerradas.length > 0 && (
         <button onClick={() => setVerEncerradas(v => !v)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 mb-3 rounded-lg text-xs transition-colors hover:bg-[var(--notion-bg-3)]"
@@ -265,7 +309,10 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
             border: `1px solid ${verEncerradas ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
           }}>
           <Archive className="w-3.5 h-3.5 flex-shrink-0" />
-          {encerradas.length} {encerradas.length === 1 ? 'tarefa encerrada' : 'tarefas encerradas'} há mais de {DIAS_ATE_SUMIR} dias
+          {encerradas.length} {encerradas.length === 1 ? 'tarefa fora do quadro' : 'tarefas fora do quadro'}
+          <span style={{ color: 'var(--notion-text-3)' }}>
+            (arquivadas ou encerradas há mais de {DIAS_ATE_SUMIR} dias)
+          </span>
           <span style={{ color: 'var(--notion-accent)' }}>· {verEncerradas ? 'esconder' : 'mostrar'}</span>
         </button>
       )}
@@ -323,6 +370,8 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
       <ScrollX className="flex gap-3 overflow-x-auto pb-2 items-start">
         {lists.sort((a, b) => a.position - b.position).map(list => {
           const listCards = visiveis.filter(c => c.list_id === list.id).sort(porPrazo)
+          // encerradas que ainda ocupam a coluna — o menu da lista oferece varrer todas de uma vez
+          const encerradasAqui = cards.filter(c => c.list_id === list.id && cardEncerrado(c, list.id) && !c.arquivado_em).length
           return (
             <div key={list.id}
               onDragOver={e => { e.preventDefault(); setOverList(list.id) }}
@@ -339,10 +388,15 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                 {listMenu === list.id && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setListMenu(null)} />
-                    <div className="absolute right-0 top-7 z-50 w-36 rounded-lg p-1 shadow-xl" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
-                      {isAdmin
-                        ? <button onClick={() => deleteList(list.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /> Excluir lista</button>
-                        : <p className="px-2 py-1.5 text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem ações disponíveis</p>}
+                    <div className="absolute right-0 top-7 z-50 w-52 rounded-lg p-1 shadow-xl" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+                      {encerradasAqui > 0 && (
+                        <button onClick={() => arquivarEncerradas(list.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text)' }}>
+                          <Archive className="w-3.5 h-3.5 flex-shrink-0" /> Arquivar {encerradasAqui} encerrada{encerradasAqui > 1 ? 's' : ''}
+                        </button>
+                      )}
+                      {isAdmin && <button onClick={() => deleteList(list.id)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)]" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /> Excluir lista</button>}
+                      {!isAdmin && encerradasAqui === 0 &&
+                        <p className="px-2 py-1.5 text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem ações disponíveis</p>}
                     </div>
                   </>
                 )}
@@ -375,6 +429,12 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                         {card.title}
                       </p>
                       <div className="flex items-center gap-2 flex-wrap">
+                        {card.arquivado_em && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text-3)' }}
+                            title={`Arquivada em ${new Date(card.arquivado_em).toLocaleDateString('pt-BR')}`}>
+                            <Archive className="w-3 h-3" /> Arquivada
+                          </span>
+                        )}
                         {card.completed && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#34D399' }}>
                             <CheckCircle2 className="w-3 h-3" /> Fechada
@@ -440,6 +500,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 
       {current && (
         <CardModal card={current} lists={lists} labels={labels} members={members} userId={userId} workspaceId={workspaceId}
+          encerrada={cardEncerrado(current)}
           onClose={() => setOpenCard(null)} patchCard={patchCard} setLabels={setLabels}
           onDeleted={() => { setCards(cs => cs.filter(c => c.id !== current.id)); setOpenCard(null) }}
           log={log} />
@@ -449,8 +510,10 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 }
 
 // ====================== Modal de cartão ======================
-function CardModal({ card, lists, labels, members, userId, workspaceId, onClose, patchCard, setLabels, onDeleted, log }: {
+function CardModal({ card, lists, labels, members, userId, workspaceId, encerrada, onClose, patchCard, setLabels, onDeleted, log }: {
   card: BCard; lists: BList[]; labels: BLabel[]; members: BMember[]; userId: string; workspaceId: string
+  /** concluída/cancelada ou parada em coluna de encerramento — só então dá para arquivar */
+  encerrada: boolean
   onClose: () => void; patchCard: (id: string, p: Partial<BCard>) => void
   setLabels: React.Dispatch<React.SetStateAction<BLabel[]>>; onDeleted: () => void
   log: (cardId: string, kind: string, text: string) => Promise<void>
@@ -609,11 +672,32 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
     refreshActivity()
   }
 
+  /**
+   * Manda a tarefa encerrada para o arquivo (ou tira de lá).
+   *
+   * Sai do quadro na hora, sem esperar os 45 dias — o cartão continua no banco,
+   * na ficha do cliente e no botão "mostrar" do topo do quadro.
+   */
+  async function arquivar(sim: boolean) {
+    const arquivado_em = sim ? new Date().toISOString() : null
+    patchCard(card.id, { arquivado_em })
+    const { error } = await supabase.from('board_cards').update({ arquivado_em }).eq('id', card.id)
+    if (error) { patchCard(card.id, { arquivado_em: card.arquivado_em ?? null }); alert(`Não consegui arquivar: ${error.message}`); return }
+    await log(card.id, 'event', sim ? 'arquivou a tarefa' : 'tirou a tarefa do arquivo')
+    refreshActivity()
+    if (sim) onClose()
+  }
+
   /** conclui/cancela/reabre a tarefa — fechada, ela some da ficha do cliente */
   async function setCardState(next: CardState) {
     const completed = next !== 'open'
-    patchCard(card.id, { completed })
-    await supabase.from('board_cards').update({ completed }).eq('id', card.id)
+    // Reabrir tira do arquivo: trabalho vivo não fica na gaveta. Vai explícito
+    // no UPDATE porque o trigger sozinho não resolveria o caso de reabrir um
+    // cartão que continua parado na coluna "Finalizado" — para ele a tarefa
+    // seguiria encerrada, e o cartão voltaria arquivado no próximo F5.
+    const patch = completed ? { completed } : { completed, arquivado_em: null }
+    patchCard(card.id, patch)
+    await supabase.from('board_cards').update(patch).eq('id', card.id)
     await supabase.from('board_activity').delete().eq('card_id', card.id).eq('kind', 'status')
     if (completed) await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'status', text: next })
     await log(card.id, 'event', next === 'done' ? 'concluiu a tarefa' : next === 'canceled' ? 'cancelou a tarefa' : 'reabriu a tarefa')
@@ -684,7 +768,15 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
     await supabase.from('board_cards').delete().eq('id', card.id)
     onDeleted(); router.refresh()
   }
-  async function moveToList(listId: string) { patchCard(card.id, { list_id: listId }); await supabase.from('board_cards').update({ list_id: listId }).eq('id', card.id); await log(card.id, 'event', `moveu para "${lists.find(l => l.id === listId)?.title}"`); refreshActivity() }
+  async function moveToList(listId: string) {
+    // mesma regra do arrastar no quadro: voltar para coluna de trabalho tira do
+    // arquivo (quem zera no banco é o trigger board_cards_encerramento)
+    const volta = !card.completed && !listaEncerra(lists.find(l => l.id === listId)?.title)
+    patchCard(card.id, { list_id: listId, ...(volta ? { arquivado_em: null } : {}) })
+    await supabase.from('board_cards').update({ list_id: listId }).eq('id', card.id)
+    await log(card.id, 'event', `moveu para "${lists.find(l => l.id === listId)?.title}"`)
+    refreshActivity()
+  }
 
   const dueLocal = card.due_date ? new Date(card.due_date).toISOString().slice(0, 16) : ''
 
@@ -714,6 +806,19 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, onClose,
                 </span>
                 <button onClick={() => setCardState('open')} className="px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Reabrir</button>
               </>
+            )}
+            {/* arquivar é só para tarefa encerrada: no banco, trabalho vivo não
+                fica na gaveta (o trigger zera o carimbo) */}
+            {card.arquivado_em ? (
+              <button onClick={() => arquivar(false)} title={`Arquivada em ${new Date(card.arquivado_em).toLocaleDateString('pt-BR')}`}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
+                <ArchiveRestore className="w-3.5 h-3.5" /> Desarquivar
+              </button>
+            ) : (encerrada || state !== 'open') && (
+              <button onClick={() => arquivar(true)} title="Sai do quadro agora; continua no sistema e na ficha do cliente"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
+                <Archive className="w-3.5 h-3.5" /> Arquivar
+              </button>
             )}
             {isAdmin && <button onClick={deleteCard} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-4 h-4" /></button>}
             <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>

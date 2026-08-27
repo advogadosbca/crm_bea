@@ -60,6 +60,14 @@ export interface DBRow {
   created_by?: string | null
   updated_at: string
   updated_by?: string | null
+  /**
+   * Desde quando o registro está arquivado; nulo = ativo.
+   *
+   * Arquivado sai da visualização padrão da fonte mas continua no banco e nas
+   * relações — o processo encerrado some do quadro e ainda aparece na ficha do
+   * cliente que voltar a procurar anos depois.
+   */
+  arquivado_em?: string | null
 }
 
 export interface DBTable {

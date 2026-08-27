@@ -33,7 +33,8 @@ export default async function DashboardPage() {
   if (finIds.length) {
     const [{ data: cols }, { data: drows }] = await Promise.all([
       supabase.from('db_columns').select('*').in('table_id', finIds),
-      supabase.from('db_rows').select('table_id, data').in('table_id', finIds).limit(100000),
+      // registro arquivado saiu de vista de propósito: não pode continuar somando nos cartões
+      supabase.from('db_rows').select('table_id, data').in('table_id', finIds).is('arquivado_em', null).limit(100000),
     ])
     const allCols = (cols || []) as DBColumn[]
     const meta = new Map(finTables.map(t => {
