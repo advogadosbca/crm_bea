@@ -1,15 +1,15 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
 import { chaveTelefone, formatarTelefoneBr } from '@/lib/telefone'
 import {
-  EM_ATENDIMENTO, STATUS_INICIAL, acharPorTelefone, contextoLeads, idDaOpcao, nomeParaCadastro,
+  STATUS_INICIAL, acharPorTelefone, contextoLeads, idDaOpcao, nomeParaCadastro,
 } from '@/lib/leads-crm'
 
 /**
  * POST /api/v1/leads/criar — cadastra o lead no Funil Pré-Atendimento.
  *
  * Chamada pelo ramo "não existe" do fluxo da Sofia. Entra em Primeiro Contato,
- * com a data de hoje, telefone no formato da tela ("37 9 9110-1892") e a
- * etiqueta "Em Atendimento" — que só sai quando a equipe tirar, à mão.
+ * com a data de hoje e o telefone no formato da tela ("37 9 9110-1892"). Sem
+ * etiqueta: quem atende, por enquanto, é a própria Sofia.
  *
  * Confere de novo se o telefone já está lá antes de inserir. A consulta e a
  * criação são duas chamadas separadas, e entre uma e outra pode ter chegado
@@ -37,7 +37,6 @@ export async function POST(req: Request) {
   const colNome = ctx.colLead('Nome')
   const colData = ctx.colLead('Data Contato')
   const colStatus = ctx.colLead('Status pré-atendimento')
-  const colAtend = ctx.colLead('Atendimento')
 
   const jaExiste = await acharPorTelefone(admin, ctx.leadsId, colTel, telefone)
   if (jaExiste) {
@@ -50,8 +49,9 @@ export async function POST(req: Request) {
   if (colData) dados[colData.id] = new Date().toISOString().slice(0, 10)
   const idStatus = idDaOpcao(colStatus, STATUS_INICIAL)
   if (colStatus && idStatus) dados[colStatus.id] = idStatus
-  const idAtend = idDaOpcao(colAtend, EM_ATENDIMENTO)
-  if (colAtend && idAtend) dados[colAtend.id] = idAtend
+  // A etiqueta "Em Atendimento" NÃO entra aqui: ela significa "tem gente do
+  // escritório atendendo", e quem marca e desmarca é a equipe na tela. Lead
+  // nascendo com ela faria a Sofia se calar na segunda mensagem da pessoa.
 
   // entra no topo da coluna, como o botão "Novo" da tela: o quadro ordena por
   // position, e lead que acabou de escrever é o que a equipe precisa ver

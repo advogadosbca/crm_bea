@@ -8,11 +8,16 @@ import {
  * POST /api/v1/leads/consulta — só consulta, não escreve nada.
  *
  * Primeiro passo do fluxo da Sofia: esse telefone já existe no CRM? O n8n usa a
- * resposta para decidir o caminho (criar o lead, marcar a etiqueta, ou seguir).
+ * resposta para decidir o caminho: criar o lead, seguir o atendimento, ou sair de
+ * cena porque alguém do escritório assumiu a conversa.
  *
  * Procura em Clientes ANTES de Leads. Sem essa ordem, cliente do escritório que
  * mandasse mensagem seria tratado como desconhecido e viraria lead novo em
  * Primeiro Contato — hoje 4 pessoas estão nas duas bases.
+ *
+ * O `emAtendimento` diz se TEM GENTE DO ESCRITÓRIO atendendo aquela pessoa —
+ * é a etiqueta que a equipe marca e desmarca na tela, e o fluxo só lê. Quando
+ * está marcada, a Sofia sai de cena e deixa o humano falar.
  *
  * { telefone } ->
  * { existe, tipo: 'cliente'|'lead'|null, leadId, clienteId, nome, statusFunil, emAtendimento }
@@ -42,9 +47,9 @@ export async function POST(req: Request) {
       leadId: null,
       nome: nomeCli ? String(cliente.data[nomeCli.id] ?? '') : '',
       statusFunil: null,
-      // Clientes não tem a coluna Atendimento: devolve true para o fluxo não
-      // tentar marcar etiqueta que não existe. Cliente antigo não é captação.
-      emAtendimento: true,
+      // A fonte Clientes não tem a coluna Atendimento, então não há como alguém
+      // ter assumido a conversa por lá: false = ninguém atendendo, a Sofia segue.
+      emAtendimento: false,
     })
   }
 
