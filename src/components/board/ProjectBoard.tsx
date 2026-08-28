@@ -4,16 +4,17 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { uploadFile, deleteFile } from '@/lib/upload'
-import { DBColumn, DBRow, primaryValue } from '@/types/dynamic'
+import { DBColumn, DBRow, DataSource, SelectOption, primaryValue } from '@/types/dynamic'
 import { initials, personColor } from '@/lib/people'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { RecordPanel } from '@/components/dynamic/RecordPanel'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
-  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive, ArchiveRestore,
+  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive, ArchiveRestore, Scale,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -35,6 +36,23 @@ export interface ChecklistItem { id: string; text: string; done: boolean }
 export interface Checklist { title: string; items: ChecklistItem[] }
 /** checklist de outro cartão oferecida como modelo na hora de criar uma nova */
 interface ChecklistModelo { id: string; cartao: string; titulo: string; itens: string[] }
+
+/**
+ * Clientes vinculados ao cartão e os processos judiciais de cada um.
+ *
+ * Carregado sob demanda, só quando o cartão tem cliente: são três fontes
+ * inteiras (Clientes, Leads e Processos) e não faz sentido pagar isso ao abrir
+ * uma tarefa que não aponta para ninguém. As fontes vêm completas porque o
+ * painel lateral resolve as relações a partir delas — meia fonte deixaria os
+ * chips de relação vazios dentro do painel.
+ */
+interface Vinculos {
+  sources: DataSource[]
+  /** id da linha do cliente -> processos ATIVOS dele (arquivado não conta) */
+  porCliente: Record<string, DBRow[]>
+  /** coluna que guarda o número CNJ na fonte Processos Judiciais */
+  numeroColId: string | null
+}
 
 /**
  * Quanto tempo uma tarefa encerrada ainda ocupa espaço no quadro.
@@ -533,6 +551,9 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
   const [clCopiarDe, setClCopiarDe] = useState('')
   const [contacts, setContacts] = useState<{ id: string; name: string; phone?: string; source?: string }[] | null>(null)
   const [contactQuery, setContactQuery] = useState('')
+  // clientes vinculados + processos deles, e o registro aberto no painel lateral
+  const [vinc, setVinc] = useState<Vinculos | null>(null)
+  const [registro, setRegistro] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [linkText, setLinkText] = useState('')
@@ -637,6 +658,90 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
       setContacts(list)
     })()
   }, [pop, contacts, supabase, workspaceId])
+
+  /**
+   * Puxa os processos judiciais dos clientes vinculados ao cartão.
+   *
+   * O elo é a coluna de relação "Cliente" da fonte Processos Judiciais: a linha
+   * do processo guarda os ids das linhas de cliente. Arquivado fica de fora —
+   * o pedido foi mostrar processo ATIVO, e processo encerrado na frente de quem
+   * está cumprindo prazo é ruído.
+   */
+  useEffect(() => {
+    if (!linkedContacts.length || vinc !== null) return
+    let vivo = true
+    ;(async () => {
+      const { data: tbls } = await supabase.from('db_tables').select('id, name, module_key')
+        .eq('workspace_id', workspaceId)
+        .in('module_key', ['fonte-contatos', 'fonte-leads', 'processos'])
+      const ids = (tbls || []).map(t => t.id as string)
+      if (!ids.length) { if (vivo) setVinc({ sources: [], porCliente: {}, numeroColId: null }); return }
+
+      const [{ data: cols }, { data: rws }] = await Promise.all([
+        supabase.from('db_columns').select('*').in('table_id', ids).order('position'),
+        supabase.from('db_rows').select('*').in('table_id', ids).order('position').limit(100000),
+      ])
+      if (!vivo) return
+
+      const todasCols = (cols || []) as DBColumn[]
+      const todasRows = (rws || []) as DBRow[]
+      const sources: DataSource[] = (tbls || []).map(t => ({
+        id: t.id as string,
+        name: t.name as string,
+        columns: todasCols.filter(c => c.table_id === t.id),
+        rows: todasRows.filter(r => r.table_id === t.id),
+      }))
+
+      const proc = (tbls || []).find(t => t.module_key === 'processos')
+      const procCols = proc ? todasCols.filter(c => c.table_id === proc.id) : []
+      const relCol = procCols.find(c => c.type === 'relation' && c.config?.sourceTableId)
+      const numeroCol = procCols.find(c => c.name.trim().toLowerCase() === 'processo')
+
+      const porCliente: Record<string, DBRow[]> = {}
+      if (proc && relCol) {
+        for (const r of todasRows) {
+          if (r.table_id !== proc.id || r.arquivado_em) continue
+          const alvos = Array.isArray(r.data[relCol.id]) ? (r.data[relCol.id] as string[]) : []
+          for (const id of alvos) (porCliente[id] ||= []).push(r)
+        }
+      }
+      setVinc({ sources, porCliente, numeroColId: numeroCol?.id || null })
+    })()
+    return () => { vivo = false }
+  }, [linkedContacts.length, vinc, supabase, workspaceId])
+
+  /** abre no painel lateral a linha de um cliente vinculado */
+  function abrirCliente(contactId: string) {
+    for (const s of vinc?.sources || []) {
+      const row = s.rows.find(r => r.id === contactId)
+      if (row) { setRegistro({ source: s, row }); return }
+    }
+  }
+  function abrirProcesso(row: DBRow) {
+    const s = (vinc?.sources || []).find(x => x.id === row.table_id)
+    if (s) setRegistro({ source: s, row })
+  }
+  /** edição feita dentro do painel lateral: grava e reflete no estado local */
+  async function salvarCampoVinculo(sourceId: string, rowId: string, colId: string, value: unknown) {
+    const atual = vinc?.sources.find(s => s.id === sourceId)?.rows.find(r => r.id === rowId)
+    const data = { ...(atual?.data || {}), [colId]: value }
+    setVinc(v => v && ({
+      ...v,
+      sources: v.sources.map(s => s.id !== sourceId ? s
+        : { ...s, rows: s.rows.map(r => r.id !== rowId ? r : { ...r, data }) }),
+    }))
+    await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: new Date().toISOString() }).eq('id', rowId)
+  }
+  async function salvarOpcoesVinculo(sourceId: string, colId: string, options: SelectOption[]) {
+    const col = vinc?.sources.find(s => s.id === sourceId)?.columns.find(c => c.id === colId)
+    const config = { ...(col?.config || {}), options }
+    setVinc(v => v && ({
+      ...v,
+      sources: v.sources.map(s => s.id !== sourceId ? s
+        : { ...s, columns: s.columns.map(c => c.id !== colId ? c : { ...c, config }) }),
+    }))
+    await supabase.from('db_columns').update({ config }).eq('id', colId)
+  }
 
   // checklists dos outros cartões (modelos para copiar), carregadas só quando o menu abre
   useEffect(() => {
@@ -855,11 +960,53 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
               {linkedContacts.map(c => (
                 <span key={c.contactId} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
                   <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{c.name[0]?.toUpperCase()}</span>
-                  {c.name}
+                  {/* nome abre a ficha do cliente no painel lateral */}
+                  <button onClick={() => abrirCliente(c.contactId)} title="Abrir a ficha do cliente"
+                    className="hover:underline" style={{ color: 'var(--notion-text)' }}>{c.name}</button>
                   <button onClick={() => toggleContact(c.contactId, c.name)} title="Desvincular cliente" className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>
                 </span>
               ))}
             </div>
+
+            {/* Processos judiciais do cliente, puxados sozinhos da fonte.
+                Some por inteiro quando não há processo ativo: bloco vazio com
+                título só ocuparia altura para dizer "nada aqui". */}
+            {(() => {
+              if (!vinc) return null
+              const grupos = linkedContacts
+                .map(c => ({ cliente: c, procs: vinc.porCliente[c.contactId] || [] }))
+                .filter(g => g.procs.length > 0)
+              if (!grupos.length) return null
+              const numeroDe = (r: DBRow) => {
+                const v = vinc.numeroColId ? r.data[vinc.numeroColId] : null
+                return (typeof v === 'string' && v.trim()) ? v.trim() : 'processo sem número'
+              }
+              return (
+                <div>
+                  <span className="text-xs font-medium flex items-center gap-1.5 mb-1.5" style={{ color: 'var(--notion-text-3)' }}>
+                    <Scale className="w-3.5 h-3.5" /> Processos
+                  </span>
+                  <div className="space-y-1.5">
+                    {grupos.map(g => (
+                      <div key={g.cliente.contactId} className="flex flex-wrap items-center gap-1.5">
+                        {/* de quem são estes processos só importa quando há mais de um cliente no cartão */}
+                        {grupos.length > 1 && (
+                          <span className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>{g.cliente.name}:</span>
+                        )}
+                        {g.procs.map(p => (
+                          <button key={p.id} onClick={() => abrirProcesso(p)} title="Abrir o processo"
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-4)]"
+                            style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+                            <Scale className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+                            {numeroDe(p)}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* prazo */}
             <div className="relative">
@@ -1062,6 +1209,14 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
           </Popover>
         )}
       </div>
+
+      {/* ficha do cliente ou do processo, o mesmo painel lateral das fontes de
+          dados. Sai por portal acima do modal, e fechar volta para o cartão. */}
+      {registro && vinc && (
+        <RecordPanel record={registro} sources={vinc.sources} members={members} userId={userId}
+          onClose={() => setRegistro(null)}
+          onSaveField={salvarCampoVinculo} onUpdateOptions={salvarOpcoesVinculo} />
+      )}
     </div>
   )
 }
