@@ -36,6 +36,21 @@ type Linha = { id: string; data: Record<string, unknown> }
 const idDaOpcao = (c: Coluna | undefined, label: string): string | null =>
   (c?.config?.options || []).find(o => o.label.trim().toLowerCase() === label.toLowerCase())?.id ?? null
 
+/**
+ * Nome que vai para o cadastro.
+ *
+ * O WhatsApp manda o `senderName` (o nome que a pessoa escolheu no aparelho),
+ * mas quando ela não tem um definido vem o próprio número — e aí o funil ficaria
+ * com "553798705013" no lugar do nome, destoando de todo o resto da lista. Sem
+ * nome utilizável, grava o telefone formatado, que pelo menos é legível.
+ */
+function nomeParaCadastro(nome: string, telefone: string): string {
+  const limpo = nome.trim()
+  const soDigitos = limpo.replace(/\D/g, '')
+  const pareceNumero = limpo.length > 0 && soDigitos.length >= 8 && soDigitos.length === limpo.replace(/[\s()+-]/g, '').length
+  return !limpo || pareceNumero ? formatarTelefoneBr(telefone) : limpo
+}
+
 /** true quando a célula de seleção aponta para a opção informada (aceita id ou rótulo) */
 function temOpcao(col: Coluna | undefined, valor: unknown, label: string): boolean {
   if (!col || valor === null || valor === undefined || valor === '') return false
@@ -139,7 +154,7 @@ export async function POST(req: Request) {
 
   // ---------- 3. gente nova: entra no funil ----------
   const dados: Record<string, unknown> = {}
-  if (colNomeLead) dados[colNomeLead.id] = nome || formatarTelefoneBr(telefone)
+  if (colNomeLead) dados[colNomeLead.id] = nomeParaCadastro(nome, telefone)
   if (telLead) dados[telLead.id] = formatarTelefoneBr(telefone)
   if (colDataContato) dados[colDataContato.id] = hoje
   const idStatus = idDaOpcao(colStatusFunil, STATUS_INICIAL)
@@ -161,7 +176,7 @@ export async function POST(req: Request) {
 
   return Response.json({
     status: 'lead_criado', leadId: criado.id, clienteId: null,
-    nome: nome || formatarTelefoneBr(telefone),
+    nome: nomeParaCadastro(nome, telefone),
     statusFunil: STATUS_INICIAL, emAtendimento: true, criado: true,
   })
 }
