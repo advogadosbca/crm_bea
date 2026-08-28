@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useId } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Bell, Check, X, Loader2, Sparkles, AlertTriangle, CalendarClock, Clock,
@@ -8,7 +8,7 @@ import {
   Mail, MailOpen, Trash2,
 } from 'lucide-react'
 import type { MapaClientes, ClienteDoProcesso } from '@/lib/clientes-por-processo'
-import { Field, Input, Select } from '@/components/ui/primitives'
+import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
 import { EditableHeader, type HeaderAssets } from '@/components/layout/EditableHeader'
 
 export interface Classificacao {
@@ -63,8 +63,17 @@ const TIPO_COR: Record<string, string> = {
   acordao: '#34D399', alvara: '#60A5FA', despacho: '#94A3B8',
   arquivamento: '#94A3B8', outro: '#94A3B8',
 }
+/**
+ * Sugestões de tipo de tarefa — atalhos, não uma lista fechada.
+ *
+ * Era um `select` e o escritório esbarrava nele toda semana: a intimação pedia
+ * algo que não está aqui ("juntar contrato social", "impugnar cálculo"), o
+ * advogado aprovava com o rótulo mais próximo e depois ia ao Quadro de Tarefas
+ * caçar o cartão só para corrigir o título. Agora o campo aceita texto livre e
+ * estes valores viram apenas o autocomplete.
+ */
 const OPCOES_TIPO_TAREFA = [
-  '', 'Documentação', 'Requerimento Administrativo', 'Cobrar na Secretaria', 'Cumprimento de Sentença',
+  'Documentação', 'Requerimento Administrativo', 'Cobrar na Secretaria', 'Cumprimento de Sentença',
   'Manifestar no Processo', 'Alvará judicial', 'FGTS', 'Parcelamento', 'Conversar com cliente',
   'Guia de desarquivamento', 'Aguardando sentença/decisão',
 ]
@@ -531,8 +540,11 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
   const cls = c.classificacao
   const alvo = cls?.prazo?.fim || cls?.evento_data || null
   const semTelefone = !cliente?.telefone
+  // cada cartão aberto tem seu próprio datalist; id fixo colidiria entre eles
+  const listaTiposId = useId()
 
   const [tipoTarefa, setTipoTarefa] = useState(sugerirTipoTarefa(cls?.tipo))
+  const [observacao, setObservacao] = useState('')
   const [prioridade, setPrioridade] = useState(sugerirPrioridade(cls?.tipo, alvo))
   const [dataRetorno, setDataRetorno] = useState(alvo || '')
   const [membrosSel, setMembrosSel] = useState<string[]>(c.responsaveis?.length ? c.responsaveis : [userId])
@@ -550,7 +562,7 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
       body: JSON.stringify({
         id: c.id, acao,
         dados: {
-          tipo: cls?.tipo || 'outro', tipoTarefa, prioridade,
+          tipo: cls?.tipo || 'outro', tipoTarefa, prioridade, observacao,
           dataRetorno: dataRetorno || null, membros: membrosSel,
           criarAudiencia: criarAud, audienciaData: audData || null, audienciaHora: cls?.evento_hora || null,
         },
@@ -576,10 +588,15 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
+        {/* texto livre com as opções de sempre no autocomplete: o rótulo escrito
+            aqui é o começo do título do cartão, então dá para nomear a tarefa
+            sem depois ir ao Quadro corrigir */}
         <Field label="Tipo de tarefa">
-          <Select value={tipoTarefa} onChange={e => setTipoTarefa(e.target.value)}>
-            {OPCOES_TIPO_TAREFA.map(o => <option key={o} value={o}>{o || '— escolher —'}</option>)}
-          </Select>
+          <Input list={listaTiposId} value={tipoTarefa} onChange={e => setTipoTarefa(e.target.value)}
+            placeholder="Escolha ou escreva" autoComplete="off" />
+          <datalist id={listaTiposId}>
+            {OPCOES_TIPO_TAREFA.map(o => <option key={o} value={o} />)}
+          </datalist>
         </Field>
         <Field label="Prioridade">
           <Select value={prioridade} onChange={e => setPrioridade(e.target.value)}>
@@ -606,6 +623,24 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
           </div>
         </Field>
       </div>
+
+      {/* Observação de quem aprova: vira comentário no cartão, assinado por quem
+          aprovou. É o passo que antes obrigava a abrir o Quadro de Tarefas,
+          achar a tarefa recém-criada e comentar lá. */}
+      <Field label="Observação para a tarefa (opcional)">
+        <Textarea rows={2} value={observacao} onChange={e => setObservacao(e.target.value)}
+          placeholder="Ex.: pedir os documentos com o cliente antes de protocolar. Entra como comentário no cartão." />
+      </Field>
+
+      {/* o título é montado no servidor com esta mesma regra (criarCartao);
+          mostrar aqui evita aprovar e só depois descobrir como ficou */}
+      <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+        Título do cartão:{' '}
+        <span style={{ color: 'var(--notion-text-2)' }}>
+          {[tipoTarefa.trim() || rotuloPadrao(cls?.tipo),
+            cliente?.nome ? `${cliente.nome} — ${fmtCnj(c.cnj)}` : fmtCnj(c.cnj)].join(' · ')}
+        </span>
+      </p>
 
       {(cls?.tipo === 'audiencia' || cls?.evento_data) && (
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--notion-text-2)' }}>
@@ -670,6 +705,16 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
       </p>
     </div>
   )
+}
+
+/**
+ * Rótulo usado no título quando o campo de tipo fica vazio. Espelha o
+ * ROTULO_TIPO de src/lib/novidades.ts, que é quem monta o título de verdade —
+ * inclusive o "outro → Comunicação", que difere do TIPOS_LABEL da listagem.
+ */
+function rotuloPadrao(tipo?: string) {
+  if (!tipo || tipo === 'outro') return 'Comunicação'
+  return TIPOS_LABEL[tipo] || 'Comunicação'
 }
 
 function sugerirTipoTarefa(tipo?: string) {

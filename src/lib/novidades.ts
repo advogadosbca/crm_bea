@@ -90,7 +90,8 @@ export interface DadosAprovacao {
   prioridade: string
   dataRetorno: string | null      // prazo final ou data do evento
   membros: string[]               // profile ids
-  observacao: string              // vai para o campo de contato/resumo
+  /** observação escrita na aprovação; vira comentário assinado no cartão */
+  observacao: string
   criarAudiencia: boolean
   audienciaData: string | null
   audienciaHora: string | null
@@ -284,6 +285,17 @@ async function criarCartao({ admin, workspaceId, autorId, cnj, cliente, clienteR
     card_id: cardId, user_id: autorId, kind: 'event',
     text: 'criou o cartão ao aprovar uma comunicação na Central de Novidades',
   })
+
+  // Observação escrita na aprovação. Entra como COMENTÁRIO, não como mais uma
+  // linha da descrição: assim fica assinada por quem aprovou e datada, do jeito
+  // que ficaria se ele tivesse aberto o cartão e comentado à mão — que é
+  // exatamente o retrabalho que este campo veio eliminar.
+  const observacao = dados.observacao.trim()
+  if (observacao) {
+    await admin.from('board_activity').insert({
+      card_id: cardId, user_id: autorId, kind: 'comment', text: observacao,
+    })
+  }
 
   return cardId
 }
