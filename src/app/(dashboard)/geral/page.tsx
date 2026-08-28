@@ -60,6 +60,8 @@ export default async function GeralPage({ searchParams }: {
   const shortcuts = {
     contatosId: (dynTables || []).find(t => t.module_key === 'fonte-contatos')?.id || '',
     leadsId: (dynTables || []).find(t => t.module_key === 'fonte-leads')?.id || '',
+    // o Quadro de Tarefas usa para achar os processos do cliente dentro de dynSources
+    processosId: (dynTables || []).find(t => t.module_key === 'processos')?.id || '',
   }
 
   // funil dinâmico: tabela Leads (quadro por Status pré-atendimento) com relação Contato

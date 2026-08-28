@@ -35,7 +35,7 @@ interface Props {
   kanbanColumns: { funil: KanbanColumn[]; negociacao: KanbanColumn[]; acoes: KanbanColumn[] }
   board: { lists: BList[]; cards: BCard[]; labels: BLabel[] }
   geralTables: { alerta: DynTable; prazos: DynTable; pendencias: DynTable; sources: DataSource[] }
-  shortcuts: { contatosId: string; leadsId: string }
+  shortcuts: { contatosId: string; leadsId: string; processosId: string }
   leadsBoard?: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null
   /** ?card=<id>: cartão a abrir direto no Quadro de Tarefas (link vindo do painel do cliente) */
   openCardId?: string
@@ -285,8 +285,11 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
               <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
                 <Gavel className="w-4 h-4" style={{ color: '#22D3EE' }} /> Quadro de Tarefas
               </h2>
+              {/* as fontes ja vieram prontas do servidor nesta pagina; o cartao le os
+                  processos do cliente daqui em vez de buscar tudo de novo ao abrir */}
               <ProjectBoard lists={board.lists} cards={board.cards} labels={board.labels}
-                members={members} workspaceId={workspaceId} userId={userId} openCardId={openCardId} />
+                members={members} workspaceId={workspaceId} userId={userId} openCardId={openCardId}
+                sources={geralTables.sources} processosTableId={shortcuts.processosId} />
             </section>
           </div>
         )}

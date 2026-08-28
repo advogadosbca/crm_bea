@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { uploadFile, deleteFile } from '@/lib/upload'
@@ -38,16 +38,16 @@ export interface Checklist { title: string; items: ChecklistItem[] }
 interface ChecklistModelo { id: string; cartao: string; titulo: string; itens: string[] }
 
 /**
- * Clientes vinculados ao cartão e os processos judiciais de cada um.
+ * Processos judiciais indexados por cliente, para o cartão mostrar os CNJ na
+ * hora em que abre.
  *
- * Carregado sob demanda, só quando o cartão tem cliente: são três fontes
- * inteiras (Clientes, Leads e Processos) e não faz sentido pagar isso ao abrir
- * uma tarefa que não aponta para ninguém. As fontes vêm completas porque o
- * painel lateral resolve as relações a partir delas — meia fonte deixaria os
- * chips de relação vazios dentro do painel.
+ * Calculado em memória a partir das fontes que a página /geral já carregou no
+ * servidor. A primeira versão buscava as três fontes (Clientes, Leads e
+ * Processos, ~800 kB) a cada cartão aberto, e o escritório esperava perto de um
+ * minuto pelos chips — mesmo em cliente com um processo só. O dado já estava na
+ * tela; era só não pedir de novo.
  */
 interface Vinculos {
-  sources: DataSource[]
   /** id da linha do cliente -> processos ATIVOS dele (arquivado não conta) */
   porCliente: Record<string, DBRow[]>
   /** coluna que guarda o número CNJ na fonte Processos Judiciais */
@@ -106,10 +106,14 @@ function Gravidade({ n, cor, texto }: { n: number; cor: string; texto: string })
   )
 }
 
-export function ProjectBoard({ lists: initLists, cards: initCards, labels: initLabels, members, workspaceId, userId, openCardId }: {
+export function ProjectBoard({ lists: initLists, cards: initCards, labels: initLabels, members, workspaceId, userId, openCardId, sources = [], processosTableId = '' }: {
   lists: BList[]; cards: BCard[]; labels: BLabel[]; members: BMember[]; workspaceId: string; userId: string
   /** cartão a abrir automaticamente (link ?card= vindo do painel do cliente) */
   openCardId?: string
+  /** fontes dinâmicas já carregadas pela página — o cartão lê os processos daqui */
+  sources?: DataSource[]
+  /** id da fonte Processos Judiciais dentro de `sources` */
+  processosTableId?: string
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -518,7 +522,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 
       {current && (
         <CardModal card={current} lists={lists} labels={labels} members={members} userId={userId} workspaceId={workspaceId}
-          encerrada={cardEncerrado(current)}
+          encerrada={cardEncerrado(current)} sources={sources} processosTableId={processosTableId}
           onClose={() => setOpenCard(null)} patchCard={patchCard} setLabels={setLabels}
           onDeleted={() => { setCards(cs => cs.filter(c => c.id !== current.id)); setOpenCard(null) }}
           log={log} />
@@ -528,10 +532,13 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
 }
 
 // ====================== Modal de cartão ======================
-function CardModal({ card, lists, labels, members, userId, workspaceId, encerrada, onClose, patchCard, setLabels, onDeleted, log }: {
+function CardModal({ card, lists, labels, members, userId, workspaceId, encerrada, sources, processosTableId, onClose, patchCard, setLabels, onDeleted, log }: {
   card: BCard; lists: BList[]; labels: BLabel[]; members: BMember[]; userId: string; workspaceId: string
   /** concluída/cancelada ou parada em coluna de encerramento — só então dá para arquivar */
   encerrada: boolean
+  /** fontes dinâmicas prontas (vêm da página) e a fonte de processos dentro delas */
+  sources: DataSource[]
+  processosTableId: string
   onClose: () => void; patchCard: (id: string, p: Partial<BCard>) => void
   setLabels: React.Dispatch<React.SetStateAction<BLabel[]>>; onDeleted: () => void
   log: (cardId: string, kind: string, text: string) => Promise<void>
@@ -551,8 +558,10 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
   const [clCopiarDe, setClCopiarDe] = useState('')
   const [contacts, setContacts] = useState<{ id: string; name: string; phone?: string; source?: string }[] | null>(null)
   const [contactQuery, setContactQuery] = useState('')
-  // clientes vinculados + processos deles, e o registro aberto no painel lateral
-  const [vinc, setVinc] = useState<Vinculos | null>(null)
+  // cópia local das fontes: o painel lateral edita campos, e a tela precisa
+  // refletir a edição sem esperar o servidor recarregar a página inteira
+  const [fontes, setFontes] = useState<DataSource[]>(sources)
+  useEffect(() => { setFontes(sources) }, [sources])
   const [registro, setRegistro] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
@@ -660,86 +669,54 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
   }, [pop, contacts, supabase, workspaceId])
 
   /**
-   * Puxa os processos judiciais dos clientes vinculados ao cartão.
+   * Indexa os processos por cliente. Sem ida ao banco: as fontes chegam prontas
+   * da página, então os chips aparecem junto com o cartão.
    *
    * O elo é a coluna de relação "Cliente" da fonte Processos Judiciais: a linha
    * do processo guarda os ids das linhas de cliente. Arquivado fica de fora —
    * o pedido foi mostrar processo ATIVO, e processo encerrado na frente de quem
    * está cumprindo prazo é ruído.
    */
-  useEffect(() => {
-    if (!linkedContacts.length || vinc !== null) return
-    let vivo = true
-    ;(async () => {
-      const { data: tbls } = await supabase.from('db_tables').select('id, name, module_key')
-        .eq('workspace_id', workspaceId)
-        .in('module_key', ['fonte-contatos', 'fonte-leads', 'processos'])
-      const ids = (tbls || []).map(t => t.id as string)
-      if (!ids.length) { if (vivo) setVinc({ sources: [], porCliente: {}, numeroColId: null }); return }
-
-      const [{ data: cols }, { data: rws }] = await Promise.all([
-        supabase.from('db_columns').select('*').in('table_id', ids).order('position'),
-        supabase.from('db_rows').select('*').in('table_id', ids).order('position').limit(100000),
-      ])
-      if (!vivo) return
-
-      const todasCols = (cols || []) as DBColumn[]
-      const todasRows = (rws || []) as DBRow[]
-      const sources: DataSource[] = (tbls || []).map(t => ({
-        id: t.id as string,
-        name: t.name as string,
-        columns: todasCols.filter(c => c.table_id === t.id),
-        rows: todasRows.filter(r => r.table_id === t.id),
-      }))
-
-      const proc = (tbls || []).find(t => t.module_key === 'processos')
-      const procCols = proc ? todasCols.filter(c => c.table_id === proc.id) : []
-      const relCol = procCols.find(c => c.type === 'relation' && c.config?.sourceTableId)
-      const numeroCol = procCols.find(c => c.name.trim().toLowerCase() === 'processo')
-
-      const porCliente: Record<string, DBRow[]> = {}
-      if (proc && relCol) {
-        for (const r of todasRows) {
-          if (r.table_id !== proc.id || r.arquivado_em) continue
-          const alvos = Array.isArray(r.data[relCol.id]) ? (r.data[relCol.id] as string[]) : []
-          for (const id of alvos) (porCliente[id] ||= []).push(r)
-        }
+  const vinc: Vinculos = useMemo(() => {
+    const proc = fontes.find(s => s.id === processosTableId)
+    if (!proc) return { porCliente: {}, numeroColId: null }
+    const relCol = proc.columns.find(c => c.type === 'relation' && c.config?.sourceTableId)
+    const numeroCol = proc.columns.find(c => c.name.trim().toLowerCase() === 'processo')
+    const porCliente: Record<string, DBRow[]> = {}
+    if (relCol) {
+      for (const r of proc.rows) {
+        if (r.arquivado_em) continue
+        const alvos = Array.isArray(r.data[relCol.id]) ? (r.data[relCol.id] as string[]) : []
+        for (const id of alvos) (porCliente[id] ||= []).push(r)
       }
-      setVinc({ sources, porCliente, numeroColId: numeroCol?.id || null })
-    })()
-    return () => { vivo = false }
-  }, [linkedContacts.length, vinc, supabase, workspaceId])
+    }
+    return { porCliente, numeroColId: numeroCol?.id || null }
+  }, [fontes, processosTableId])
 
   /** abre no painel lateral a linha de um cliente vinculado */
   function abrirCliente(contactId: string) {
-    for (const s of vinc?.sources || []) {
+    for (const s of fontes) {
       const row = s.rows.find(r => r.id === contactId)
       if (row) { setRegistro({ source: s, row }); return }
     }
   }
   function abrirProcesso(row: DBRow) {
-    const s = (vinc?.sources || []).find(x => x.id === row.table_id)
+    const s = fontes.find(x => x.id === row.table_id)
     if (s) setRegistro({ source: s, row })
   }
-  /** edição feita dentro do painel lateral: grava e reflete no estado local */
+  /** edição feita dentro do painel lateral: grava e reflete na cópia local */
   async function salvarCampoVinculo(sourceId: string, rowId: string, colId: string, value: unknown) {
-    const atual = vinc?.sources.find(s => s.id === sourceId)?.rows.find(r => r.id === rowId)
+    const atual = fontes.find(s => s.id === sourceId)?.rows.find(r => r.id === rowId)
     const data = { ...(atual?.data || {}), [colId]: value }
-    setVinc(v => v && ({
-      ...v,
-      sources: v.sources.map(s => s.id !== sourceId ? s
-        : { ...s, rows: s.rows.map(r => r.id !== rowId ? r : { ...r, data }) }),
-    }))
+    setFontes(fs => fs.map(s => s.id !== sourceId ? s
+      : { ...s, rows: s.rows.map(r => r.id !== rowId ? r : { ...r, data }) }))
     await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: new Date().toISOString() }).eq('id', rowId)
   }
   async function salvarOpcoesVinculo(sourceId: string, colId: string, options: SelectOption[]) {
-    const col = vinc?.sources.find(s => s.id === sourceId)?.columns.find(c => c.id === colId)
+    const col = fontes.find(s => s.id === sourceId)?.columns.find(c => c.id === colId)
     const config = { ...(col?.config || {}), options }
-    setVinc(v => v && ({
-      ...v,
-      sources: v.sources.map(s => s.id !== sourceId ? s
-        : { ...s, columns: s.columns.map(c => c.id !== colId ? c : { ...c, config }) }),
-    }))
+    setFontes(fs => fs.map(s => s.id !== sourceId ? s
+      : { ...s, columns: s.columns.map(c => c.id !== colId ? c : { ...c, config }) }))
     await supabase.from('db_columns').update({ config }).eq('id', colId)
   }
 
@@ -972,7 +949,6 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
                 Some por inteiro quando não há processo ativo: bloco vazio com
                 título só ocuparia altura para dizer "nada aqui". */}
             {(() => {
-              if (!vinc) return null
               const grupos = linkedContacts
                 .map(c => ({ cliente: c, procs: vinc.porCliente[c.contactId] || [] }))
                 .filter(g => g.procs.length > 0)
@@ -1212,8 +1188,8 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
 
       {/* ficha do cliente ou do processo, o mesmo painel lateral das fontes de
           dados. Sai por portal acima do modal, e fechar volta para o cartão. */}
-      {registro && vinc && (
-        <RecordPanel record={registro} sources={vinc.sources} members={members} userId={userId}
+      {registro && (
+        <RecordPanel record={registro} sources={fontes} members={members} userId={userId}
           onClose={() => setRegistro(null)}
           onSaveField={salvarCampoVinculo} onUpdateOptions={salvarOpcoesVinculo} />
       )}
