@@ -3,20 +3,28 @@ import { textoDe } from '@/lib/processos-sync'
 import { chaveTelefone } from '@/lib/telefone'
 
 /**
- * POST /api/v1/processos/consulta — processos de uma pessoa, por CPF e/ou telefone.
+ * POST /api/v1/processos/consulta — processos de uma pessoa.
  *
  * É a tool que a Sofia usa quando o cliente pergunta do processo dele. Devolve
  * pronto para leitura: número, tribunal, área e a última atualização escrita
  * pelo escritório — nada de UUID de coluna ou id de linha do lado do n8n.
  *
- * ACEITA OS DOIS IDENTIFICADORES, e não é preciosismo: na base de hoje são 423
- * processos, 349 com CPF na própria linha, e apenas 21 dos 365 clientes têm CPF
- * preenchido. Quem tem telefone é quase todo mundo (321). Buscar só por CPF
- * deixaria de fora 69 processos que só se ligam à pessoa pela relação Cliente;
- * buscar só por telefone perderia os 2 que têm CPF solto na linha e nenhum
- * cliente apontado. Manda os dois quando tiver, que a busca é a união.
+ * DUAS BUSCAS, EM CASCATA E NÃO EM UNIÃO
+ *  1. CPF, quando informado. É o identificador certo: pertence à pessoa, não ao
+ *     aparelho.
+ *  2. Telefone, só se o CPF não achou nada (ou se não veio CPF). O número já
+ *     chega do webhook, então não custa nada ao cliente.
  *
- * { cpf?, telefone? } -> { total, ativos, processos: [...] }
+ * A cascata é de propósito. Somando os dois, um CPF que não bate voltaria com os
+ * processos do dono do celular — e celular de família é comum. Assim, quando o
+ * CPF acha, é dele que a resposta sai; `buscaPor` diz qual caminho respondeu,
+ * para a Sofia saber que caiu no telefone e tratar com cuidado.
+ *
+ * POR QUE O TELEFONE EXISTE COMO SAÍDA: de 423 processos, 349 têm CPF na própria
+ * linha, mas só 21 dos 365 clientes têm CPF cadastrado. Por telefone, 301 dos
+ * 321 clientes com número acham ao menos um processo.
+ *
+ * { cpf?, telefone? } -> { total, ativos, buscaPor, cpfNaoLocalizado, processos }
  */
 
 const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '')
@@ -61,8 +69,9 @@ export async function POST(req: Request) {
   const cTramitacao = col(tProc.id, 'Tramitação')
   const cRelCliente = todas.find(c => c.table_id === tProc.id && c.type === 'relation' && c.config?.sourceTableId)
 
-  // ---------- clientes que batem com o CPF ou com o telefone ----------
-  const clientesAlvo = new Set<string>()
+  // ---------- clientes de cada identificador, separados ----------
+  const clientesDoCpf = new Set<string>()
+  const clientesDoTelefone = new Set<string>()
   const nomePorCliente = new Map<string, string>()
   if (tCli) {
     const cCpfCli = col(tCli.id, 'CPF / CNPJ', 'CPF/CNPJ')
@@ -71,41 +80,53 @@ export async function POST(req: Request) {
     const { data: clientes } = await admin.from('db_rows').select('id, data').eq('table_id', tCli.id).limit(100000)
     for (const c of (clientes || []) as Linha[]) {
       if (cNomeCli) nomePorCliente.set(c.id, String(c.data[cNomeCli.id] ?? ''))
-      const bateCpf = cpfValido && !!cCpfCli && soDigitos(c.data[cCpfCli.id]) === cpf
-      const bateTel = !!chaveTel && !!cTelCli && chaveTelefone(c.data[cTelCli.id]) === chaveTel
-      if (bateCpf || bateTel) clientesAlvo.add(c.id)
+      if (cpfValido && cCpfCli && soDigitos(c.data[cCpfCli.id]) === cpf) clientesDoCpf.add(c.id)
+      if (chaveTel && cTelCli && chaveTelefone(c.data[cTelCli.id]) === chaveTel) clientesDoTelefone.add(c.id)
     }
   }
 
-  // ---------- processos ----------
   const { data: linhas } = await admin.from('db_rows').select('id, data, arquivado_em')
     .eq('table_id', tProc.id).order('position').limit(100000)
+  const todasLinhas = (linhas || []) as Linha[]
 
-  const processos = ((linhas || []) as Linha[])
-    .map(r => {
-      const alvos = cRelCliente && Array.isArray(r.data[cRelCliente.id]) ? (r.data[cRelCliente.id] as string[]) : []
-      const porCpfNaLinha = cpfValido && !!cCpfProc && soDigitos(r.data[cCpfProc.id]) === cpf
-      const porCliente = alvos.some(id => clientesAlvo.has(id))
-      if (!porCpfNaLinha && !porCliente) return null
-      return {
-        numero: cNumero ? textoDe(r.data[cNumero.id]) : '',
-        cliente: alvos.map(id => nomePorCliente.get(id)).filter(Boolean).join(', '),
-        tribunal: rotulo(cTribunal, r.data[cTribunal?.id ?? '']),
-        area: rotulo(cArea, r.data[cArea?.id ?? '']),
-        tramitacao: cTramitacao ? textoDe(r.data[cTramitacao.id]) : '',
-        ultimaAtualizacao: cAtualizacao ? textoDe(r.data[cAtualizacao.id]) : '',
-        dataMovimentacao: cDataMov ? textoDe(r.data[cDataMov.id]) : '',
-        arquivado: !!r.arquivado_em,
-        // de onde veio o casamento, para depurar cadastro incompleto sem
-        // precisar abrir o banco
-        encontradoPor: porCliente ? 'cliente' : 'cpf',
-      }
-    })
-    .filter((p): p is NonNullable<typeof p> => !!p && !!p.numero)
+  const clientesDaLinha = (r: Linha) =>
+    cRelCliente && Array.isArray(r.data[cRelCliente.id]) ? (r.data[cRelCliente.id] as string[]) : []
+
+  /** 1ª busca: CPF na própria linha do processo ou no cliente relacionado */
+  const porCpf = () => !cpfValido ? [] : todasLinhas.filter(r =>
+    (!!cCpfProc && soDigitos(r.data[cCpfProc.id]) === cpf) ||
+    clientesDaLinha(r).some(id => clientesDoCpf.has(id)))
+
+  /** 2ª busca: cliente daquele telefone */
+  const porTelefone = () => !chaveTel ? [] : todasLinhas.filter(r =>
+    clientesDaLinha(r).some(id => clientesDoTelefone.has(id)))
+
+  let achadas = porCpf()
+  let buscaPor: 'cpf' | 'telefone' | 'nenhum' = achadas.length ? 'cpf' : 'nenhum'
+  if (!achadas.length) {
+    achadas = porTelefone()
+    if (achadas.length) buscaPor = 'telefone'
+  }
+
+  const processos = achadas.map(r => ({
+    numero: cNumero ? textoDe(r.data[cNumero.id]) : '',
+    cliente: clientesDaLinha(r).map(id => nomePorCliente.get(id)).filter(Boolean).join(', '),
+    tribunal: rotulo(cTribunal, r.data[cTribunal?.id ?? '']),
+    area: rotulo(cArea, r.data[cArea?.id ?? '']),
+    tramitacao: cTramitacao ? textoDe(r.data[cTramitacao.id]) : '',
+    ultimaAtualizacao: cAtualizacao ? textoDe(r.data[cAtualizacao.id]) : '',
+    dataMovimentacao: cDataMov ? textoDe(r.data[cDataMov.id]) : '',
+    arquivado: !!r.arquivado_em,
+  })).filter(p => !!p.numero)
 
   return Response.json({
     total: processos.length,
     ativos: processos.filter(p => !p.arquivado).length,
+    buscaPor,
+    // avisa a Sofia que o CPF informado não bateu com nada: ou foi digitado
+    // errado, ou o cadastro está incompleto. Se veio processo mesmo assim, veio
+    // pelo dono do telefone, que pode não ser a mesma pessoa.
+    cpfNaoLocalizado: cpfValido && buscaPor !== 'cpf',
     processos,
   })
 
