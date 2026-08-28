@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { chaveTelefone } from '@/lib/telefone'
 
 /**
  * Promove um lead a cliente: cria (ou vincula) o registro na fonte Clientes e
@@ -50,13 +51,6 @@ const rotuloDe = (c: Coluna, v: unknown): string => {
 const idDaOpcao = (c: Coluna, label: string): string | null =>
   opcoes(c).find(x => x.label === label)?.id ?? null
 
-/** DDD + últimos 8 dígitos: casa "37 9 9919-9014" com "3799199014" */
-function chaveTelefone(v: unknown): string | null {
-  let d = String(v ?? '').replace(/\D/g, '')
-  if (d.length > 11 && d.startsWith('55')) d = d.slice(2)
-  if (d.length < 10) return null
-  return d.slice(0, 2) + d.slice(-8)
-}
 
 export async function POST(req: Request) {
   const supabase = await createServerSupabaseClient()
