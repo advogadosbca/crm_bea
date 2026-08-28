@@ -846,23 +846,20 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
               <button onClick={() => setPop(pop === 'contacts' ? 'none' : 'contacts')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Users className="w-3.5 h-3.5" /> Cliente</button>
               <button onClick={() => setPop(pop === 'attach' ? 'none' : 'attach')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><Paperclip className="w-3.5 h-3.5" /> Anexo</button>
               <button onClick={() => setPop(pop === 'checklist' ? 'none' : 'checklist')} className="px-2 py-1 rounded-md text-xs flex items-center gap-1" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}><CheckSquare className="w-3.5 h-3.5" /> Checklist</button>
-            </div>
 
-            {/* clientes vinculados */}
-            {linkedContacts.length > 0 && (
-              <div>
-                <span className="text-xs font-medium flex items-center gap-1.5 mb-1.5" style={{ color: 'var(--notion-text-3)' }}><Users className="w-3.5 h-3.5" /> Clientes</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {linkedContacts.map(c => (
-                    <span key={c.contactId} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
-                      <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{c.name[0]?.toUpperCase()}</span>
-                      {c.name}
-                      <button onClick={() => toggleContact(c.contactId, c.name)} className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+              {/* Clientes vinculados na MESMA linha dos botões, e depois deles.
+                  Era um bloco próprio abaixo, com título "Clientes"; o escritório
+                  pediu aqui em cima, junto do resto da identificação da tarefa.
+                  Ficam no fim da fila para os botões não dançarem de lugar cada
+                  vez que um cliente entra ou sai. */}
+              {linkedContacts.map(c => (
+                <span key={c.contactId} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+                  <span className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{c.name[0]?.toUpperCase()}</span>
+                  {c.name}
+                  <button onClick={() => toggleContact(c.contactId, c.name)} title="Desvincular cliente" className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-3 h-3" /></button>
+                </span>
+              ))}
+            </div>
 
             {/* prazo */}
             <div className="relative">
