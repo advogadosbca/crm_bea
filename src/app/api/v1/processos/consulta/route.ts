@@ -1,6 +1,7 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
 import { textoDe } from '@/lib/processos-sync'
 import { chaveTelefone } from '@/lib/telefone'
+import { fetchAllRows } from '@/lib/db-rows'
 
 /**
  * POST /api/v1/processos/consulta — processos de uma pessoa.
@@ -77,17 +78,19 @@ export async function POST(req: Request) {
     const cCpfCli = col(tCli.id, 'CPF / CNPJ', 'CPF/CNPJ')
     const cNomeCli = col(tCli.id, 'Nome')
     const cTelCli = col(tCli.id, 'Telefone')
-    const { data: clientes } = await admin.from('db_rows').select('id, data').eq('table_id', tCli.id).limit(100000)
-    for (const c of (clientes || []) as Linha[]) {
+    // paginado: o PostgREST devolve no máximo 1000 linhas por resposta
+    const clientes = await fetchAllRows<Linha>((de, ate) =>
+      admin.from('db_rows').select('id, data').eq('table_id', tCli.id).order('id').range(de, ate))
+    for (const c of clientes) {
       if (cNomeCli) nomePorCliente.set(c.id, String(c.data[cNomeCli.id] ?? ''))
       if (cpfValido && cCpfCli && soDigitos(c.data[cCpfCli.id]) === cpf) clientesDoCpf.add(c.id)
       if (chaveTel && cTelCli && chaveTelefone(c.data[cTelCli.id]) === chaveTel) clientesDoTelefone.add(c.id)
     }
   }
 
-  const { data: linhas } = await admin.from('db_rows').select('id, data, arquivado_em')
-    .eq('table_id', tProc.id).order('position').limit(100000)
-  const todasLinhas = (linhas || []) as Linha[]
+  const todasLinhas = await fetchAllRows<Linha>((de, ate) =>
+    admin.from('db_rows').select('id, data, arquivado_em')
+      .eq('table_id', tProc.id).order('position').order('id').range(de, ate))
 
   const clientesDaLinha = (r: Linha) =>
     cRelCliente && Array.isArray(r.data[cRelCliente.id]) ? (r.data[cRelCliente.id] as string[]) : []

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { chaveTelefone, formatarTelefoneBr } from './telefone'
+import { fetchAllRows } from '@/lib/db-rows'
 
 /**
  * Peças comuns das rotas de lead do WhatsApp (consulta, criar, atendimento).
@@ -80,9 +81,10 @@ export async function acharPorTelefone(
 ): Promise<Linha | null> {
   const chave = chaveTelefone(telefone)
   if (!chave || !colTelefone) return null
-  const { data } = await admin.from('db_rows').select('id, data')
-    .eq('table_id', tableId).order('created_at', { ascending: true }).limit(100000)
-  return ((data || []) as Linha[]).find(r => chaveTelefone(r.data[colTelefone.id]) === chave) || null
+  const data = await fetchAllRows<Linha>((de, ate) =>
+    admin.from('db_rows').select('id, data')
+      .eq('table_id', tableId).order('created_at', { ascending: true }).order('id').range(de, ate))
+  return data.find(r => chaveTelefone(r.data[colTelefone.id]) === chave) || null
 }
 
 /** rótulo legível de uma célula de seleção (a linha guarda o id da opção) */

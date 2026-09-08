@@ -4,6 +4,7 @@ import {
   limparPublicacao, soData, soDigitos, textoDe, type Fonte,
 } from '@/lib/processos-sync'
 import { ingerirPublicacoes, sincronizarResponsaveis, type ItemDjen } from '@/lib/comunicacoes'
+import { fetchAllRows } from '@/lib/db-rows'
 
 /**
  * POST /api/v1/processos/sincronizar
@@ -69,8 +70,9 @@ export async function POST(req: Request) {
   // sobre os CNJ extraídos da célula, não sobre todos os dígitos dela, porque o
   // campo é texto livre e costuma ter anotação junto.
   if (!alvo) {
-    const { data: rows } = await admin.from('db_rows').select('id, data').eq('table_id', cols.tableId)
-    const achado = (rows || []).find(r => cnjsDaCelula((r.data as Record<string, unknown>)[cols.numero]).includes(digitos))
+    const rows = await fetchAllRows<{ id: string; data: unknown }>((de, ate) =>
+      admin.from('db_rows').select('id, data').eq('table_id', cols.tableId).order('id').range(de, ate))
+    const achado = rows.find(r => cnjsDaCelula((r.data as Record<string, unknown>)[cols.numero]).includes(digitos))
     if (achado) alvo = { id: achado.id, data: achado.data as Record<string, unknown> }
   }
 

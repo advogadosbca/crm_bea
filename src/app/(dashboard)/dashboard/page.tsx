@@ -2,6 +2,7 @@ import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { Lock } from 'lucide-react'
 import { DBColumn, displayValue } from '@/types/dynamic'
 import { DashboardClient, type FinRow } from './DashboardClient'
+import { fetchAllRows } from '@/lib/db-rows'
 
 const RECEITA_KEYS = ['fin-adv-entradas', 'fin-hub-entradas']
 const DESPESA_KEYS = ['fin-adv-saidas', 'fin-hub-saidas']
@@ -31,10 +32,14 @@ export default async function DashboardPage() {
 
   let rows: FinRow[] = []
   if (finIds.length) {
-    const [{ data: cols }, { data: drows }] = await Promise.all([
+    // paginado: os lançamentos passam de mil e o PostgREST corta a resposta em
+    // 1000 sem avisar — sem paginar, os cartões somavam só parte do movimento.
+    const [{ data: cols }, drows] = await Promise.all([
       supabase.from('db_columns').select('*').in('table_id', finIds),
       // registro arquivado saiu de vista de propósito: não pode continuar somando nos cartões
-      supabase.from('db_rows').select('table_id, data').in('table_id', finIds).is('arquivado_em', null).limit(100000),
+      fetchAllRows<{ table_id: string; data: Record<string, unknown> }>((de, ate) =>
+        supabase.from('db_rows').select('table_id, data').in('table_id', finIds)
+          .is('arquivado_em', null).order('id').range(de, ate)),
     ])
     const allCols = (cols || []) as DBColumn[]
     const meta = new Map(finTables.map(t => {

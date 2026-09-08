@@ -1,6 +1,7 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { GeralClient } from './GeralClient'
 import { DBColumn, DBRow, filterAdminOnly, isAdminRole } from '@/types/dynamic'
+import { fetchAllRows } from '@/lib/db-rows'
 
 export default async function GeralPage({ searchParams }: {
   searchParams: Promise<{ card?: string }>
@@ -37,12 +38,17 @@ export default async function GeralPage({ searchParams }: {
   let dynCols: DBColumn[] = []
   let dynRows: DBRow[] = []
   if (dynIds.length) {
-    const [{ data: c }, { data: r }] = await Promise.all([
+    // As linhas vêm PAGINADAS: são milhares somando todas as tabelas e o
+    // PostgREST corta em 1000 por resposta, calado. Sem paginar, a maior parte
+    // dos Processos Judiciais não chegava aqui e o cartão de tarefa abria sem
+    // os processos ativos do cliente. Ver lib/db-rows.
+    const [{ data: c }, r] = await Promise.all([
       supabase.from('db_columns').select('*').in('table_id', dynIds).order('position'),
-      supabase.from('db_rows').select('*').in('table_id', dynIds).order('position').limit(100000),
+      fetchAllRows<DBRow>((de, ate) =>
+        supabase.from('db_rows').select('*').in('table_id', dynIds).order('position').order('id').range(de, ate)),
     ])
     // colunas "somente admins" ficam fora do payload de quem não é admin
-    dynCols = filterAdminOnly((c || []) as DBColumn[], isAdminRole(profile?.role)); dynRows = (r || []) as DBRow[]
+    dynCols = filterAdminOnly((c || []) as DBColumn[], isAdminRole(profile?.role)); dynRows = r
   }
   const dynSources = (dynTables || []).map(t => ({ id: t.id, name: t.name, columns: dynCols.filter(c => c.table_id === t.id), rows: dynRows.filter(r => r.table_id === t.id) }))
   const tableOf = (key: string) => {

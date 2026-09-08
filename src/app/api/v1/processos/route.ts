@@ -1,5 +1,6 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
 import { cnjsDaCelula, colunasProcessos, textoDe } from '@/lib/processos-sync'
+import { fetchAllRows } from '@/lib/db-rows'
 
 /**
  * GET /api/v1/processos
@@ -14,9 +15,10 @@ export async function GET(req: Request) {
   const cols = await colunasProcessos(admin, workspaceId)
   if (!cols) return Response.json({ error: 'Fonte "Processos Judiciais" não encontrada.' }, { status: 404 })
 
-  const { data: rows } = await admin.from('db_rows').select('id, data').eq('table_id', cols.tableId).order('position')
+  const rows = await fetchAllRows<{ id: string; data: unknown }>((de, ate) =>
+    admin.from('db_rows').select('id, data').eq('table_id', cols.tableId).order('position').order('id').range(de, ate))
 
-  const processos = (rows || [])
+  const processos = rows
     .map(r => {
       const d = r.data as Record<string, unknown>
       const cnjs = cnjsDaCelula(d[cols.numero])

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { cnjsDaCelula, textoDe } from './processos-sync'
+import { fetchAllRows } from '@/lib/db-rows'
 
 /**
  * Resolve o cliente de cada processo: CNJ -> { nome, telefone }.
@@ -37,8 +38,9 @@ export async function clientesPorProcesso(
   const colCliente = (cols || []).find(c => c.name === 'Cliente')
   if (!colNumero) return mapa
 
-  const { data: linhas } = await sb.from('db_rows')
-    .select('id, data').eq('table_id', tabela.id).limit(100000)
+  // paginado: o PostgREST corta qualquer resposta em 1000 linhas
+  const linhas = await fetchAllRows<{ id: string; data: unknown }>((de, ate) =>
+    sb.from('db_rows').select('id, data').eq('table_id', tabela.id).order('id').range(de, ate))
 
   const querido = cnjsDesejados?.length ? new Set(cnjsDesejados) : null
 
@@ -46,7 +48,7 @@ export async function clientesPorProcesso(
   const idsCliente = new Set<string>()
   const pendente: { cnj: string; processoRowId: string; clienteRowId: string | null }[] = []
 
-  for (const l of linhas || []) {
+  for (const l of linhas) {
     const dados = l.data as Record<string, unknown>
     const cnjs = cnjsDaCelula(dados[colNumero.id])
     if (!cnjs.length) continue
@@ -75,10 +77,10 @@ export async function clientesPorProcesso(
       const colNome = (colsCli || []).find(c => c.name === 'Nome')
       const colTel = (colsCli || []).find(c => c.name === 'Telefone')
 
-      const { data: linhasCli } = await sb.from('db_rows')
-        .select('id, data').in('id', [...idsCliente])
+      const linhasCli = await fetchAllRows<{ id: string; data: unknown }>((de, ate) =>
+        sb.from('db_rows').select('id, data').in('id', [...idsCliente]).order('id').range(de, ate))
 
-      for (const c of linhasCli || []) {
+      for (const c of linhasCli) {
         const d = c.data as Record<string, unknown>
         dadosCliente.set(c.id as string, {
           nome: colNome ? textoDe(d[colNome.id]).trim() : '',

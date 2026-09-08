@@ -3,6 +3,7 @@ import { ModuleHeader } from '@/components/layout/ModuleHeader'
 import { FinanceiroTabs } from './FinanceiroTabs'
 import { FinanceiroResumo, type FinEntry } from './FinanceiroResumo'
 import { Lock, Landmark } from 'lucide-react'
+import { fetchAllRows } from '@/lib/db-rows'
 
 const RECEITA_KEYS = ['fin-adv-entradas', 'fin-hub-entradas']
 const DESPESA_KEYS = ['fin-adv-saidas', 'fin-hub-saidas']
@@ -37,9 +38,12 @@ export default async function FinanceiroLayout({ children }: { children: React.R
   const finIds = finTables.map(t => t.id as string)
   let entries: FinEntry[] = []
   if (finIds.length) {
-    const [{ data: cols }, { data: rows }] = await Promise.all([
+    // paginado: são mais de mil lançamentos e o PostgREST corta em 1000 calado,
+    // o que fazia o resumo de receita/despesa fechar por baixo.
+    const [{ data: cols }, rows] = await Promise.all([
       supabase.from('db_columns').select('id, table_id, name').in('table_id', finIds),
-      supabase.from('db_rows').select('table_id, data').in('table_id', finIds),
+      fetchAllRows<{ table_id: string; data: Record<string, unknown> }>((de, ate) =>
+        supabase.from('db_rows').select('table_id, data').in('table_id', finIds).order('id').range(de, ate)),
     ])
     const meta = new Map(finTables.map(t => {
       const c = (cols || []).filter(x => x.table_id === t.id)

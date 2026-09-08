@@ -1,5 +1,6 @@
 import { authApiKey, unauthorized } from '@/lib/api-auth'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { fetchAllRows } from '@/lib/db-rows'
 
 // confirma que a tabela pertence ao workspace da key
 async function ownsTable(admin: SupabaseClient, workspaceId: string, tableId: string) {
@@ -15,8 +16,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ tableId:
   const { tableId } = await params
   if (!(await ownsTable(admin, workspaceId, tableId))) return Response.json({ error: 'Fonte não encontrada.' }, { status: 404 })
 
-  const { data: rows } = await admin.from('db_rows').select('id, data, created_at').eq('table_id', tableId).order('position')
-  return Response.json({ rows: rows || [] })
+  // paginado: fonte grande passa de mil linhas e o PostgREST corta a resposta
+  const rows = await fetchAllRows<{ id: string; data: unknown; created_at: string }>((de, ate) =>
+    admin.from('db_rows').select('id, data, created_at').eq('table_id', tableId).order('position').order('id').range(de, ate))
+  return Response.json({ rows })
 }
 
 // POST /api/v1/sources/:tableId/rows  → cria um registro. Body: { data: { <colId|colName>: valor } }

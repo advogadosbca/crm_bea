@@ -1,5 +1,6 @@
 import { getAuthProfile } from '@/lib/auth'
 import { DBColumn, DBRow, DataSource, filterAdminOnly, isAdminRole } from '@/types/dynamic'
+import { fetchAllRows } from '@/lib/db-rows'
 
 /**
  * Carrega a tabela dinâmica de um módulo (db_tables.module_key) + colunas/linhas + fontes do workspace.
@@ -32,8 +33,10 @@ export async function getModuleTable(moduleKey: string) {
   const rowTableIds = [...new Set([tableId, ...relSourceIds].filter(Boolean))] as string[]
   let allRows: DBRow[] = []
   if (rowTableIds.length) {
-    const { data: rows } = await supabase.from('db_rows').select('*').in('table_id', rowTableIds).order('position').limit(100000)
-    allRows = (rows || []) as DBRow[]
+    // paginado: uma tabela sozinha já passa de mil linhas e o PostgREST corta a
+    // resposta em 1000 sem devolver erro. Ver lib/db-rows.
+    allRows = await fetchAllRows<DBRow>((de, ate) =>
+      supabase.from('db_rows').select('*').in('table_id', rowTableIds).order('position').order('id').range(de, ate))
   }
 
   const columns = tableId ? allCols.filter(c => c.table_id === tableId) : []
@@ -77,8 +80,10 @@ export async function getTableById(tableId: string) {
   const rowTableIds = [...new Set([tableId, ...relSourceIds])].filter(x => ids.includes(x))
   let allRows: DBRow[] = []
   if (rowTableIds.length) {
-    const { data: rows } = await supabase.from('db_rows').select('*').in('table_id', rowTableIds).order('position').limit(100000)
-    allRows = (rows || []) as DBRow[]
+    // paginado: uma tabela sozinha já passa de mil linhas e o PostgREST corta a
+    // resposta em 1000 sem devolver erro. Ver lib/db-rows.
+    allRows = await fetchAllRows<DBRow>((de, ate) =>
+      supabase.from('db_rows').select('*').in('table_id', rowTableIds).order('position').order('id').range(de, ate))
   }
 
   const columns = exists ? allCols.filter(c => c.table_id === tableId) : []
