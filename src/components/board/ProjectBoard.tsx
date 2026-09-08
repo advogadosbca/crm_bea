@@ -10,6 +10,7 @@ import { ScrollX } from '@/components/ui/ScrollX'
 import { RecordPanel } from '@/components/dynamic/RecordPanel'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
+import { fetchAllRows } from '@/lib/db-rows'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -134,6 +135,8 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const [filtro, setFiltro] = useState<string[]>([])
   const [soAtrasadas, setSoAtrasadas] = useState(false)
   const [verEncerradas, setVerEncerradas] = useState(false)
+  /** cartão acabado de criar — fica destacado uns segundos para não se perder na coluna */
+  const [recemCriado, setRecemCriado] = useState<string | null>(null)
 
   useEffect(() => { setLists(initLists) }, [initLists])
   useEffect(() => { setCards(initCards) }, [initCards])
@@ -150,6 +153,20 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     boardRef.current?.scrollIntoView({ block: 'start' })
     window.history.replaceState(null, '', window.location.pathname)
   }, [openCardId, initCards])
+
+  /**
+   * Leva a tela até o cartão recém-criado.
+   *
+   * Ele nasce sem prazo, e `porPrazo` manda quem não tem data para o fim da
+   * coluna — que rola por dentro (ALTURA_MAX_COLUNA). Numa coluna cheia o
+   * cartão nascia fora da área visível e parecia não ter sido criado.
+   */
+  useEffect(() => {
+    if (!recemCriado) return
+    document.getElementById(`card-${recemCriado}`)?.scrollIntoView({ block: 'nearest' })
+    const t = setTimeout(() => setRecemCriado(null), 4000)
+    return () => clearTimeout(t)
+  }, [recemCriado])
 
   const member = (id: string) => members.find(m => m.id === id)
   const label = (id: string) => labels.find(l => l.id === id)
@@ -178,16 +195,36 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     }
   }
 
+  /**
+   * Cria o cartão e garante que ele apareça. Duas armadilhas já fizeram tarefa
+   * "sumir" na cara do usuário:
+   *
+   * 1) o erro do insert era descartado. Quando o banco recusava, a caixa de
+   *    texto se fechava, o que foi digitado ia embora e nada era dito — do lado
+   *    de cá parecia que a tarefa tinha sido criada. Agora o texto volta para a
+   *    caixa junto com o motivo da recusa.
+   * 2) cartão novo nasce sem prazo e sem responsável. `porPrazo` manda quem não
+   *    tem data para o fim da coluna, e qualquer filtro ligado (responsável ou
+   *    "só atrasadas") o esconde por completo — ele era criado no banco e não
+   *    aparecia na tela. Por isso o filtro sai do caminho e a tela rola até ele.
+   */
   async function addCard(listId: string) {
     const title = newCard.trim()
     setAddingIn(null); setNewCard('')
     if (!title) return
     const position = cards.filter(c => c.list_id === listId).length
-    const { data } = await supabase.from('board_cards').insert({ workspace_id: workspaceId, list_id: listId, title, position, created_by: userId }).select('*').single()
-    if (data) {
-      setCards(cs => [...cs, { ...data, members: [], labels: [] } as BCard])
-      await log(data.id, 'event', 'criou o cartão')
+    const { data, error } = await supabase.from('board_cards')
+      .insert({ workspace_id: workspaceId, list_id: listId, title, position, created_by: userId })
+      .select('*').single()
+    if (error || !data) {
+      setAddingIn(listId); setNewCard(title)
+      alert(`Não consegui criar a tarefa: ${error?.message || 'o banco não devolveu o cartão.'}`)
+      return
     }
+    setCards(cs => [...cs, { ...data, members: [], labels: [] } as BCard])
+    setFiltro([]); setSoAtrasadas(false)
+    setRecemCriado(data.id)
+    await log(data.id, 'event', 'criou o cartão')
   }
   async function addList() {
     const title = newList.trim()
@@ -431,12 +468,14 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                   const atraso = diasDeAtraso(card)
                   const corAtraso = atraso !== null ? corDoAtraso(atraso) : null
                   return (
-                    <div key={card.id} draggable
+                    <div key={card.id} id={`card-${card.id}`} draggable
                       onDragStart={() => setDragId(card.id)} onDragEnd={() => { setDragId(null); setOverList(null) }}
                       onClick={() => setOpenCard(card.id)}
                       className="rounded-lg p-2.5 border cursor-pointer transition-all hover:border-[var(--notion-accent)]"
                       style={{
-                        background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)',
+                        // recém-criado se destaca por um tom de fundo acima, não por borda colorida
+                        background: recemCriado === card.id ? 'var(--notion-bg-4)' : 'var(--notion-bg-3)',
+                        borderColor: 'var(--notion-border)',
                         // faixa vermelha à esquerda: quanto mais escura, mais antigo o atraso
                         borderLeft: corAtraso ? `4px solid ${corAtraso}` : undefined,
                         opacity: dragId === card.id ? 0.4 : 1,
@@ -647,13 +686,15 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
         .or('module_key.in.(fonte-leads,fonte-contatos),name.in.(Leads,Contatos)')
       const ids = (tbls || []).map(t => t.id)
       if (!ids.length) { setContacts([]); return }
-      const [{ data: cols }, { data: rws }] = await Promise.all([
+      const [{ data: cols }, rws] = await Promise.all([
         supabase.from('db_columns').select('*').in('table_id', ids).order('position'),
-        supabase.from('db_rows').select('*').in('table_id', ids).order('position'),
+        // paginado: Leads + Contatos já somam centenas e o PostgREST corta em 1000
+        fetchAllRows<DBRow>((de, ate) =>
+          supabase.from('db_rows').select('*').in('table_id', ids).order('position').order('id').range(de, ate)),
       ])
       const colsByTable = new Map<string, DBColumn[]>()
       for (const c of (cols || []) as DBColumn[]) { const arr = colsByTable.get(c.table_id) || []; arr.push(c); colsByTable.set(c.table_id, arr) }
-      const list = ((rws || []) as DBRow[]).map(r => {
+      const list = rws.map(r => {
         const tcols = colsByTable.get(r.table_id) || []
         const phoneCol = tcols.find(c => c.type === 'phone')
         return {
