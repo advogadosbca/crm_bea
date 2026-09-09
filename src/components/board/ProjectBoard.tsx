@@ -81,6 +81,53 @@ const listaEncerra = (titulo?: string) =>
 // paleta oficial (10 cores Notion)
 const LABEL_COLORS = ['#94A3B8', '#9B9A97', '#A27763', '#F97316', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#EF4444']
 
+/**
+ * Indexa os processos judiciais por cliente. Sem ida ao banco: as fontes já
+ * chegam prontas da página.
+ *
+ * O elo é a coluna de relação "Cliente" da fonte Processos Judiciais: a linha
+ * do processo guarda os ids das linhas de cliente. Arquivado fica de fora — o
+ * pedido foi mostrar processo ATIVO, e processo encerrado na frente de quem
+ * está cumprindo prazo é ruído.
+ */
+function indexarProcessos(fontes: DataSource[], processosTableId: string): Vinculos {
+  const proc = fontes.find(s => s.id === processosTableId)
+  if (!proc) return { porCliente: {}, numeroColId: null }
+  const relCol = proc.columns.find(c => c.type === 'relation' && c.config?.sourceTableId)
+  const numeroCol = proc.columns.find(c => c.name.trim().toLowerCase() === 'processo')
+  const porCliente: Record<string, DBRow[]> = {}
+  if (relCol) {
+    for (const r of proc.rows) {
+      if (r.arquivado_em) continue
+      const alvos = Array.isArray(r.data[relCol.id]) ? (r.data[relCol.id] as string[]) : []
+      for (const id of alvos) (porCliente[id] ||= []).push(r)
+    }
+  }
+  return { porCliente, numeroColId: numeroCol?.id || null }
+}
+
+/** número CNJ de uma linha da fonte Processos ('' quando a linha não tem) */
+const numeroDoProcesso = (r: DBRow, colId: string | null) => {
+  const v = colId ? r.data[colId] : null
+  return typeof v === 'string' ? v : ''
+}
+
+/** texto comparável: sem acento e em minúsculas — "Vinícius" é achado por "vinicius" */
+const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+/**
+ * Segunda via do texto, com os números "colados".
+ *
+ * Número de processo aparece escrito de jeitos diferentes em cada lugar
+ * (1003571-61.2025.8.13.0223, 10035716120258130223, só o começo), e ninguém
+ * digita a pontuação certa na busca. Cada palavra que tenha dígito vira só
+ * dígitos, então todas as formas caem no mesmo lugar. Palavra a palavra, e não
+ * o texto inteiro de uma vez: emendar dois números vizinhos inventaria
+ * coincidência que não existe.
+ */
+const soNumeros = (s: string) =>
+  s.split(/\s+/).filter(p => /\d/.test(p)).map(p => p.replace(/\D+/g, '')).filter(Boolean).join(' ')
+
 /** avatar do responsável: duas iniciais + cor fixa (Vitor Canedo "VC" x Vinicius Ferreira "VF") */
 function MemberAvatar({ member, size = 24, ring }: { member: BMember; size?: number; ring?: string }) {
   const cor = personColor(member.id)
@@ -135,6 +182,14 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const [filtro, setFiltro] = useState<string[]>([])
   const [soAtrasadas, setSoAtrasadas] = useState(false)
   const [verEncerradas, setVerEncerradas] = useState(false)
+  /** busca livre do quadro: casa com qualquer texto do cartão (ver `textos`) */
+  const [busca, setBusca] = useState('')
+  /**
+   * O que só existe dentro do cartão — cliente vinculado, comentário, checklist
+   * — indexado por cartão para a busca. Chega depois da primeira pintura.
+   */
+  const [extras, setExtras] = useState<Record<string, { texto: string; contatos: string[] }>>({})
+  const [statusExtras, setStatusExtras] = useState<'carregando' | 'pronto' | 'falhou'>('carregando')
   /** cartão acabado de criar — fica destacado uns segundos para não se perder na coluna */
   const [recemCriado, setRecemCriado] = useState<string | null>(null)
 
@@ -167,6 +222,45 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
     const t = setTimeout(() => setRecemCriado(null), 4000)
     return () => clearTimeout(t)
   }, [recemCriado])
+
+  /**
+   * Carrega, uma vez só, o que a busca não teria como achar olhando o quadro:
+   * clientes vinculados (e, por eles, os processos), comentários e checklists.
+   * O cartão na coluna mostra título, prazo e etiqueta; o resto está no banco.
+   *
+   * Fica FORA do payload da página de propósito — são centenas de linhas que
+   * ninguém precisa para VER o quadro. Chega logo depois da primeira pintura, e
+   * a caixa de busca avisa enquanto não chegou. Falhar aqui não quebra nada: a
+   * busca continua valendo para o que já está na tela.
+   */
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const linhas = await fetchAllRows<{ card_id: string; kind: string; text: string }>((de, ate) =>
+        supabase.from('board_activity').select('card_id, kind, text')
+          .in('kind', ['contact', 'comment', 'checklist']).order('id').range(de, ate))
+      if (!vivo) return
+      const idx: Record<string, { texto: string; contatos: string[] }> = {}
+      for (const l of linhas) {
+        const alvo = (idx[l.card_id] ||= { texto: '', contatos: [] })
+        // comentário é texto puro; os outros dois são JSON
+        if (l.kind === 'comment') { alvo.texto += ` \n ${l.text}`; continue }
+        let parsed: unknown
+        try { parsed = JSON.parse(l.text) } catch { continue }
+        if (l.kind === 'contact') {
+          const c = parsed as { contactId?: string; name?: string }
+          if (c.contactId) alvo.contatos.push(c.contactId)
+          if (c.name) alvo.texto += ` \n ${c.name}`
+        } else {
+          const cl = parsed as Checklist
+          alvo.texto += ` \n ${cl.title || ''} ${(cl.items || []).map(i => i.text).join(' ')}`
+        }
+      }
+      setExtras(idx)
+      setStatusExtras('pronto')
+    })().catch(() => { if (vivo) setStatusExtras('falhou') })
+    return () => { vivo = false }
+  }, [supabase])
 
   const member = (id: string) => members.find(m => m.id === id)
   const label = (id: string) => labels.find(l => l.id === id)
@@ -222,7 +316,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
       return
     }
     setCards(cs => [...cs, { ...data, members: [], labels: [] } as BCard])
-    setFiltro([]); setSoAtrasadas(false)
+    setFiltro([]); setSoAtrasadas(false); setBusca('')
     setRecemCriado(data.id)
     await log(data.id, 'event', 'criou o cartão')
   }
@@ -326,10 +420,58 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const medias = atrasos.filter(d => d > 7 && d <= 30).length
   const recentes = atrasos.filter(d => d <= 7).length
 
+  /**
+   * Tudo o que se pode digitar para achar um cartão, junto num texto só.
+   *
+   * Duas vias por cartão: o texto normalizado (sem acento) e o mesmo texto com
+   * os números colados, que é o que faz "1003571" achar o processo escrito
+   * "1003571-61.2025.8.13.0223".
+   */
+  const vincBoard = useMemo(() => indexarProcessos(sources, processosTableId), [sources, processosTableId])
+  const textos = useMemo(() => {
+    const idx: Record<string, { texto: string; numeros: string }> = {}
+    for (const c of cards) {
+      const partes = [
+        c.title,
+        c.description || '',
+        lists.find(l => l.id === c.list_id)?.title || '',
+        ...c.labels.map(id => labels.find(l => l.id === id)?.name || ''),
+        ...c.members.map(id => members.find(m => m.id === id)?.full_name || ''),
+      ]
+      const extra = extras[c.id]
+      if (extra) {
+        partes.push(extra.texto)
+        for (const cid of extra.contatos)
+          for (const p of vincBoard.porCliente[cid] || [])
+            partes.push(numeroDoProcesso(p, vincBoard.numeroColId))
+      }
+      const texto = normalizar(partes.join(' \n '))
+      idx[c.id] = { texto, numeros: soNumeros(texto) }
+    }
+    return idx
+  }, [cards, lists, labels, members, extras, vincBoard])
+
+  // cada palavra digitada precisa aparecer em ALGUM lugar do cartão (e não a
+  // frase inteira em ordem): "gilmar pos" acha "Pós-venda ... (Gilmar)"
+  const termos = normalizar(busca.trim()).split(/\s+/).filter(Boolean)
+  const combina = (c: BCard) => {
+    const t = textos[c.id]
+    if (!t) return false
+    return termos.every(termo => {
+      if (t.texto.includes(termo)) return true
+      const n = soNumeros(termo)
+      return !!n && t.numeros.includes(n)
+    })
+  }
+
   const porResponsavel = filtro.length
     ? noQuadro.filter(c => filtro.some(f => f === '__none__' ? c.members.length === 0 : c.members.includes(f)))
     : noQuadro
-  const visiveis = soAtrasadas ? porResponsavel.filter(c => diasDeAtraso(c) !== null) : porResponsavel
+  const porAtraso = soAtrasadas ? porResponsavel.filter(c => diasDeAtraso(c) !== null) : porResponsavel
+  const visiveis = termos.length ? porAtraso.filter(combina) : porAtraso
+  // achados que estão fora do quadro: some do resultado sem avisar seria o mesmo
+  // que dizer "não existe" sobre tarefa que existe
+  const foraDaBusca = termos.length && !verEncerradas ? encerradas.filter(combina).length : 0
 
   return (
     <div ref={boardRef} className="rounded-xl p-3" style={{ background: 'rgba(15,42,77,0.25)', border: '1px solid var(--notion-border)' }}>
@@ -375,6 +517,44 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
           <span style={{ color: 'var(--notion-accent)' }}>· {verEncerradas ? 'esconder' : 'mostrar'}</span>
         </button>
       )}
+
+      {/* Busca livre. Acha por título, cliente, número de processo, etiqueta,
+          responsável, coluna, comentário e checklist — o filtro por pessoa e o
+          "só atrasadas" continuam valendo junto. */}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg flex-1 min-w-[240px] max-w-md"
+          style={{ background: 'var(--notion-bg-2)', border: `1px solid ${busca ? 'var(--notion-accent)' : 'var(--notion-border)'}` }}>
+          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+          <input value={busca} onChange={e => setBusca(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setBusca('') }}
+            placeholder="Buscar tarefa, cliente, nº do processo..."
+            className="bg-transparent text-xs outline-none flex-1" style={{ color: 'var(--notion-text)' }} />
+          {busca && (
+            <button onClick={() => setBusca('')} title="Limpar a busca (Esc)"
+              className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}>
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        {termos.length > 0 && (
+          <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
+            {visiveis.length === 0
+              ? 'nenhuma tarefa encontrada'
+              : `${visiveis.length} ${visiveis.length === 1 ? 'tarefa encontrada' : 'tarefas encontradas'}`}
+            {/* sem este aviso, buscar por cliente antes do índice chegar
+                devolveria "nada encontrado" — e o usuário acreditaria */}
+            {statusExtras === 'carregando' && ' · ainda carregando clientes e comentários'}
+            {statusExtras === 'falhou' && ' · não consegui ler clientes e comentários'}
+          </span>
+        )}
+        {termos.length > 0 && foraDaBusca > 0 && (
+          <button onClick={() => setVerEncerradas(true)} title="Mostrar também as tarefas arquivadas ou encerradas"
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)]"
+            style={{ color: 'var(--notion-accent)', border: '1px solid var(--notion-border)' }}>
+            <Archive className="w-3 h-3" /> +{foraDaBusca} fora do quadro
+          </button>
+        )}
+      </div>
 
       {/* filtro por responsável — ver tudo ou só os prazos de uma pessoa */}
       {(comCartao.length > 0 || temSemResponsavel) && (
@@ -709,30 +889,8 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
     })()
   }, [pop, contacts, supabase, workspaceId])
 
-  /**
-   * Indexa os processos por cliente. Sem ida ao banco: as fontes chegam prontas
-   * da página, então os chips aparecem junto com o cartão.
-   *
-   * O elo é a coluna de relação "Cliente" da fonte Processos Judiciais: a linha
-   * do processo guarda os ids das linhas de cliente. Arquivado fica de fora —
-   * o pedido foi mostrar processo ATIVO, e processo encerrado na frente de quem
-   * está cumprindo prazo é ruído.
-   */
-  const vinc: Vinculos = useMemo(() => {
-    const proc = fontes.find(s => s.id === processosTableId)
-    if (!proc) return { porCliente: {}, numeroColId: null }
-    const relCol = proc.columns.find(c => c.type === 'relation' && c.config?.sourceTableId)
-    const numeroCol = proc.columns.find(c => c.name.trim().toLowerCase() === 'processo')
-    const porCliente: Record<string, DBRow[]> = {}
-    if (relCol) {
-      for (const r of proc.rows) {
-        if (r.arquivado_em) continue
-        const alvos = Array.isArray(r.data[relCol.id]) ? (r.data[relCol.id] as string[]) : []
-        for (const id of alvos) (porCliente[id] ||= []).push(r)
-      }
-    }
-    return { porCliente, numeroColId: numeroCol?.id || null }
-  }, [fontes, processosTableId])
+  // mesmo índice que a busca do quadro usa — os chips saem daqui
+  const vinc: Vinculos = useMemo(() => indexarProcessos(fontes, processosTableId), [fontes, processosTableId])
 
   /** abre no painel lateral a linha de um cliente vinculado */
   function abrirCliente(contactId: string) {
