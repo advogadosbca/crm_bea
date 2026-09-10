@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Bell, Check, X, Loader2, Sparkles, AlertTriangle, CalendarClock, Clock,
   FileText, ChevronDown, ChevronUp, Filter, Send, Ban, User, Phone,
-  Mail, MailOpen, Trash2,
+  Mail, MailOpen, Trash2, Scale,
 } from 'lucide-react'
 import type { MapaClientes, ClienteDoProcesso } from '@/lib/clientes-por-processo'
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
@@ -401,7 +401,20 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, s
                   <AlertTriangle className="w-2.5 h-2.5" /> leitura incerta
                 </span>
               )}
-              <span className="font-mono text-[11px]" style={{ color: 'var(--notion-text-3)' }}>{fmtCnj(c.cnj)}</span>
+              {/* número do processo clicável: leva ao registro em Processos
+                  Judiciais, que abre já com a ficha no painel da direita. É um
+                  <span> e não um <a> de propósito — o cabeçalho inteiro é um
+                  <button> e link dentro de botão é HTML inválido. O caminho por
+                  teclado é o link "abrir processo" que aparece ao expandir. */}
+              {cliente?.processoRowId ? (
+                <span onClick={e => { e.stopPropagation(); router.push(`/processos?row=${cliente.processoRowId}`) }}
+                  title="Abrir o processo em Processos Judiciais"
+                  className="font-mono text-[11px] cursor-pointer hover:underline"
+                  style={{ color: 'var(--notion-accent)' }}>{fmtCnj(c.cnj)}</span>
+              ) : (
+                <span className="font-mono text-[11px]" title="Nenhum processo com este número na fonte Processos Judiciais"
+                  style={{ color: 'var(--notion-text-3)' }}>{fmtCnj(c.cnj)}</span>
+              )}
               {cliente?.nome && (
                 <span className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--notion-text-2)' }}>
                   <User className="w-2.5 h-2.5" /> {cliente.nome}
@@ -471,6 +484,12 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, s
               <span style={{ color: 'var(--notion-text-3)' }}>
                 parte no processo: {c.partes.map(p => p.nome).join(', ')}
               </span>
+            )}
+            {cliente?.processoRowId && (
+              <a href={`/processos?row=${cliente.processoRowId}`}
+                className="flex items-center gap-1.5 hover:underline" style={{ color: 'var(--notion-accent)' }}>
+                <Scale className="w-3.5 h-3.5" /> abrir processo {fmtCnj(c.cnj)} →
+              </a>
             )}
           </div>
 

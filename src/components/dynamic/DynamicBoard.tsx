@@ -197,8 +197,10 @@ const VIEW_TYPES: { type: string; label: string; icon: React.ComponentType<{ cla
 ]
 const viewMeta = (t: string) => VIEW_TYPES.find(v => v.type === t) || VIEW_TYPES[0]
 
-export function DynamicBoard({ tableId, initialColumns, initialRows, sources, members, userId, views: initialViews = [], groupColId }: {
+export function DynamicBoard({ tableId, initialColumns, initialRows, sources, members, userId, views: initialViews = [], groupColId, openRowId }: {
   tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources: DataSource[]; members: Member[]; userId: string; views?: DBView[]; groupColId?: string
+  /** id de linha vindo de ?row= na URL: abre o painel lateral desse registro ao carregar */
+  openRowId?: string
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -238,6 +240,25 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   useEffect(() => { setColumns(initialColumns) }, [initialColumns])
   useEffect(() => { setRows(initialRows) }, [initialRows])
   useEffect(() => { if (initialViews.length) { setViews(initialViews); setActiveId(a => initialViews.some(v => v.id === a) ? a : initialViews[0]?.id) } }, [initialViews])
+
+  /**
+   * ?row=<id> abre o registro direto no painel da direita — é como a Central de
+   * Novidades manda o usuário do número do processo para a ficha dele.
+   *
+   * O parâmetro sai da URL logo em seguida: sem isso, fechar o painel e dar F5
+   * (ou voltar pela navegação) reabriria o mesmo registro para sempre. O painel
+   * acha a linha em `rows`, que traz também as arquivadas — processo velho
+   * continua abrindo pelo link.
+   */
+  useEffect(() => {
+    if (!openRowId) return
+    setOpenRow(openRowId)
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('row')) {
+      url.searchParams.delete('row')
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  }, [openRowId])
 
   const activeView = views.find(v => v.id === activeId) || views[0]
 
@@ -443,6 +464,14 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   }
 
   const current = rows.find(r => r.id === openRow) || null
+  // link para um registro que não existe mais (excluído, ou de outra tabela):
+  // avisa em vez de não fazer nada, que pareceria link quebrado sem explicação
+  const [sumido, setSumido] = useState<string | null>(null)
+  if (openRow && !current && sumido !== openRow) {
+    setSumido(openRow)
+    setOpenRow(null)
+    mostrar({ texto: 'Registro não encontrado — pode ter sido excluído.', tipo: 'erro' })
+  }
 
   const vt = activeView?.type || 'table'
 

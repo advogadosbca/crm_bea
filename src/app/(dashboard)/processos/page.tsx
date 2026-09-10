@@ -3,7 +3,12 @@ import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
 import { getModuleTable } from '@/lib/dynamic-data'
 import { Scale } from 'lucide-react'
 
-export default async function Page() {
+export default async function Page({ searchParams }: {
+  searchParams: Promise<{ row?: string }>
+}) {
+  // ?row=<id> vem do número do processo na Central de Novidades: abre a ficha
+  // do processo já no painel da direita
+  const { row: rowParam } = await searchParams
   const { tableId, columns, rows, sources, members, userId, views } = await getModuleTable('processos')
 
   return (
@@ -13,7 +18,7 @@ export default async function Page() {
       <div className="px-16 py-6">
         {tableId ? (
           <DynamicBoard key={tableId} tableId={tableId} initialColumns={columns} initialRows={rows}
-            sources={sources} members={members} userId={userId} views={views} />
+            sources={sources} members={members} userId={userId} views={views} openRowId={rowParam} />
         ) : (
           <p className="text-sm" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>
         )}
