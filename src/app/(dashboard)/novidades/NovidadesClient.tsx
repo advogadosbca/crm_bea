@@ -405,12 +405,16 @@ function Card({ c, cliente, membros, userId, aberta, onToggle, somenteLeitura, s
                   Judiciais, que abre já com a ficha no painel da direita. É um
                   <span> e não um <a> de propósito — o cabeçalho inteiro é um
                   <button> e link dentro de botão é HTML inválido. O caminho por
-                  teclado é o link "abrir processo" que aparece ao expandir. */}
+                  teclado é o link "abrir processo" que aparece ao expandir.
+
+                  Fica na cor do resto do cabeçalho, e não em accent: um número
+                  colorido por linha virava o elemento mais chamativo da lista
+                  inteira. O que revela o clique é o sublinhado no hover. */}
               {cliente?.processoRowId ? (
                 <span onClick={e => { e.stopPropagation(); router.push(`/processos?row=${cliente.processoRowId}`) }}
                   title="Abrir o processo em Processos Judiciais"
-                  className="font-mono text-[11px] cursor-pointer hover:underline"
-                  style={{ color: 'var(--notion-accent)' }}>{fmtCnj(c.cnj)}</span>
+                  className="font-mono text-[11px] cursor-pointer hover:underline hover:text-[var(--notion-text)]"
+                  style={{ color: 'var(--notion-text-3)' }}>{fmtCnj(c.cnj)}</span>
               ) : (
                 <span className="font-mono text-[11px]" title="Nenhum processo com este número na fonte Processos Judiciais"
                   style={{ color: 'var(--notion-text-3)' }}>{fmtCnj(c.cnj)}</span>
