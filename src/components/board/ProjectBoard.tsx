@@ -382,6 +382,9 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   // pessoas que realmente aparecem em algum cartão (não polui a barra com o time inteiro)
   const comCartao = members.filter(m => noQuadro.some(c => c.members.includes(m.id)))
   const temSemResponsavel = noQuadro.some(c => c.members.length === 0)
+  // os contadores da barra mostram só o que ainda está em andamento — concluída,
+  // cancelada ou na coluna Finalizado não é mais trabalho de ninguém
+  const emAndamento = noQuadro.filter(c => !cardEncerrado(c))
   const toggleFiltro = (id: string) => setFiltro(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
 
   // Atraso: prazo 9, hoje 10 => 1 dia atrasada. Sem carência — comparação por dia.
@@ -560,18 +563,18 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
       {(comCartao.length > 0 || temSemResponsavel) && (
         <div className="flex items-center gap-1.5 flex-wrap mb-3">
           <Users className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
-          <button onClick={() => setFiltro([])}
+          <button onClick={() => setFiltro([])} title="Números = tarefas em andamento (sem as concluídas, canceladas ou finalizadas)"
             className="px-2 py-1 rounded-md text-xs transition-colors"
             style={{
               background: filtro.length === 0 ? 'var(--notion-bg-4)' : 'transparent',
               color: filtro.length === 0 ? 'var(--notion-text)' : 'var(--notion-text-2)',
               border: `1px solid ${filtro.length === 0 ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
             }}>
-            Todos <span style={{ color: 'var(--notion-text-3)' }}>{noQuadro.length}</span>
+            Todos <span style={{ color: 'var(--notion-text-3)' }}>{emAndamento.length}</span>
           </button>
           {comCartao.map(m => {
             const on = filtro.includes(m.id)
-            const n = noQuadro.filter(c => c.members.includes(m.id)).length
+            const n = emAndamento.filter(c => c.members.includes(m.id)).length
             return (
               <button key={m.id} onClick={() => toggleFiltro(m.id)} title={`Só os prazos de ${m.full_name}`}
                 className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md text-xs transition-colors"
@@ -595,12 +598,12 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                 border: `1px solid ${filtro.includes('__none__') ? 'var(--notion-accent)' : 'var(--notion-border)'}`,
               }}>
               <UserX className="w-3 h-3" /> Sem responsável
-              <span style={{ color: 'var(--notion-text-3)' }}>{cards.filter(c => c.members.length === 0).length}</span>
+              <span style={{ color: 'var(--notion-text-3)' }}>{emAndamento.filter(c => c.members.length === 0).length}</span>
             </button>
           )}
           {filtro.length > 0 && (
             <button onClick={() => setFiltro([])} className="flex items-center gap-1 px-2 py-1 rounded-md text-xs" style={{ color: 'var(--notion-text-3)' }}>
-              <X className="w-3 h-3" /> limpar ({visiveis.length} de {noQuadro.length})
+              <X className="w-3 h-3" /> limpar ({visiveis.filter(c => !cardEncerrado(c)).length} de {emAndamento.length} em andamento)
             </button>
           )}
         </div>
