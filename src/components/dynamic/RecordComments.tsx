@@ -33,16 +33,23 @@ export function RecordComments({ rowId, userId, members, compact = false }: {
     const t = text.trim()
     if (!t || enviando) return
     setEnviando(true)
-    const { data } = await supabase.from('db_row_comments')
+    const { data, error } = await supabase.from('db_row_comments')
       .insert({ row_id: rowId, user_id: userId, text: t }).select('*').single()
-    setText('')
-    if (data) setComments(cs => [data as RowComment, ...(cs || [])])
     setEnviando(false)
+    // só limpa o campo se gravou — antes limpava sempre e a falha passava calada
+    if (error || !data) {
+      alert(`Não consegui salvar o comentário: ${error?.message || 'o banco não devolveu o registro.'}\n\nO texto continua no campo — tente enviar de novo.`)
+      return
+    }
+    setText('')
+    setComments(cs => [data as RowComment, ...(cs || [])])
   }
 
   async function remove(id: string) {
+    const antes = comments
     setComments(cs => (cs || []).filter(c => c.id !== id))
-    await supabase.from('db_row_comments').delete().eq('id', id)
+    const { error } = await supabase.from('db_row_comments').delete().eq('id', id)
+    if (error) { setComments(antes); alert(`Não consegui excluir o comentário: ${error.message}`) }
   }
 
   return (

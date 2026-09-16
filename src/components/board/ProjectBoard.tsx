@@ -770,6 +770,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
   const [editDesc, setEditDesc] = useState(false)
   const [activity, setActivity] = useState<Activity[]>([])
   const [comment, setComment] = useState('')
+  const [enviandoComentario, setEnviandoComentario] = useState(false)
   const [pop, setPop] = useState<'none' | 'members' | 'labels' | 'due' | 'contacts' | 'attach' | 'checklist'>('none')
   // checklists já existentes no quadro, para copiar os itens (igual ao Trello)
   const [modelos, setModelos] = useState<ChecklistModelo[] | null>(null)
@@ -1040,9 +1041,20 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
 
   const isImg = (u?: string) => !!u && /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u)
   async function addComment() {
-    if (!comment.trim()) return
-    await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'comment', text: comment.trim() })
+    const texto = comment.trim()
+    if (!texto || enviandoComentario) return
+    setEnviandoComentario(true)
+    const { error } = await supabase.from('board_activity').insert({ card_id: card.id, user_id: userId, kind: 'comment', text: texto })
+    setEnviandoComentario(false)
+    // só limpa o campo se gravou — antes limpava sempre, e uma falha de rede
+    // ou sessão expirada fazia o comentário sumir sem aviso
+    if (error) { alert(`Não consegui salvar o comentário: ${error.message}\n\nO texto continua no campo — tente enviar de novo.`); return }
     setComment(''); refreshActivity()
+  }
+  /** fechar o cartão com comentário digitado e não enviado descartava o texto em silêncio */
+  function fechar() {
+    if (comment.trim() && !confirm('Há um comentário escrito que ainda não foi enviado. Fechar e descartar?')) return
+    onClose()
   }
   async function deleteCard() {
     if (!confirm('Excluir este cartão?')) return
@@ -1063,7 +1075,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.6)' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && fechar()}>
       <div className="w-full max-w-6xl my-8 rounded-2xl animate-fade-in" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
           <select value={card.list_id} onChange={e => moveToList(e.target.value)} className="text-xs px-2 py-1 rounded-md outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
@@ -1102,7 +1114,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
               </button>
             )}
             {isAdmin && <button onClick={deleteCard} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-4 h-4" /></button>}
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
+            <button onClick={fechar} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>
         </div>
 
@@ -1256,7 +1268,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
             <span className="text-xs font-medium flex items-center gap-1.5 mb-2" style={{ color: 'var(--notion-text-3)' }}><MessageSquare className="w-3.5 h-3.5" /> Histórico</span>
             <div className="flex gap-2 mb-3">
               <input value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addComment() }} placeholder="Escrever comentário..." className="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }} />
-              <button onClick={addComment} className="px-2 rounded-lg text-xs" style={{ background: 'var(--notion-accent)', color: '#fff' }}>Enviar</button>
+              <button onClick={addComment} disabled={enviandoComentario} className="px-2 rounded-lg text-xs disabled:opacity-50" style={{ background: 'var(--notion-accent)', color: '#fff' }}>{enviandoComentario ? 'Enviando…' : 'Enviar'}</button>
             </div>
             <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
               {history.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Sem atividades ainda.</p>}
