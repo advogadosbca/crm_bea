@@ -5,13 +5,12 @@ import { useRouter } from 'next/navigation'
 import { ClipboardList, CheckCircle2, BarChart3, Pencil, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { ScrollX } from '@/components/ui/ScrollX'
-import { Field, Select, Textarea, Modal, ModalActions, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
+import { Field, Textarea, Modal, ModalActions, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
 import { Desempenho } from './Desempenho'
 
-interface Member { id: string; full_name: string }
-interface CardPendente {
-  id: string; title: string; due_date: string | null; encerrado_em: string | null
-  membros: Member[]
+interface PendenteItem {
+  card_id: string; cardTitulo: string; due_date: string | null; encerrado_em: string | null
+  avaliado: { id: string; full_name: string }
 }
 interface AvaliacaoFeita {
   id: string; card_id: string; avaliado_id: string
@@ -25,19 +24,18 @@ function bandaNota(v: number): { label: string; color: string } {
   return { label: 'Vermelho', color: '#EF4444' }
 }
 
-type FormState = { avaliado_id: string; entrega_no_prazo: number; quantidade_correcao: number; observacao: string }
+type FormState = { entrega_no_prazo: number; quantidade_correcao: number; observacao: string }
 
-function FormAvaliacao({ form, setForm, membros }: {
-  form: FormState; setForm: (f: FormState) => void; membros: Member[]
+function FormAvaliacao({ form, setForm, avaliadoNome }: {
+  form: FormState; setForm: (f: FormState) => void; avaliadoNome: string
 }) {
   const banda = bandaNota(form.quantidade_correcao)
   return (
     <div className="space-y-4">
-      <Field label="Colaborador avaliado *">
-        <Select value={form.avaliado_id} onChange={e => setForm({ ...form, avaliado_id: e.target.value })}>
-          <option value="">— Selecione —</option>
-          {membros.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
-        </Select>
+      <Field label="Colaborador avaliado">
+        <p className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
+          {avaliadoNome}
+        </p>
       </Field>
       <Field label="Entrega no prazo *">
         <div className="grid grid-cols-2 gap-2">
@@ -77,42 +75,39 @@ function FormAvaliacao({ form, setForm, membros }: {
   )
 }
 
-export function AvaliacoesClient({ pendentes, feitas, members, workspaceId, avaliadorId }: {
-  pendentes: CardPendente[]; feitas: AvaliacaoFeita[]; members: Member[]; workspaceId: string; avaliadorId: string
+export function AvaliacoesClient({ pendentes, feitas, workspaceId, avaliadorId }: {
+  pendentes: PendenteItem[]; feitas: AvaliacaoFeita[]; workspaceId: string; avaliadorId: string
 }) {
   const [tab, setTab] = useState<'pendentes' | 'feitas' | 'desempenho'>('pendentes')
-  const [avaliando, setAvaliando] = useState<CardPendente | null>(null)
+  const [avaliando, setAvaliando] = useState<PendenteItem | null>(null)
   const [editando, setEditando] = useState<AvaliacaoFeita | null>(null)
   const [saving, setSaving] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
-  const vazio: FormState = { avaliado_id: '', entrega_no_prazo: 10, quantidade_correcao: 10, observacao: '' }
+  const vazio: FormState = { entrega_no_prazo: 10, quantidade_correcao: 10, observacao: '' }
   const [form, setForm] = useState<FormState>(vazio)
 
-  function abrirNovo(card: CardPendente) {
-    setAvaliando(card); setEditando(null)
-    setForm({ ...vazio, avaliado_id: card.membros.length === 1 ? card.membros[0].id : '' })
+  function abrirNovo(item: PendenteItem) {
+    setAvaliando(item); setEditando(null); setForm(vazio)
   }
   function abrirEdicao(a: AvaliacaoFeita) {
     setEditando(a); setAvaliando(null)
-    setForm({ avaliado_id: a.avaliado_id, entrega_no_prazo: a.entrega_no_prazo, quantidade_correcao: a.quantidade_correcao, observacao: a.observacao || '' })
+    setForm({ entrega_no_prazo: a.entrega_no_prazo, quantidade_correcao: a.quantidade_correcao, observacao: a.observacao || '' })
   }
   function fechar() { setAvaliando(null); setEditando(null) }
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.avaliado_id) return
     setSaving(true)
     if (avaliando) {
       await supabase.from('avaliacoes_entrega').insert({
-        workspace_id: workspaceId, card_id: avaliando.id, avaliado_id: form.avaliado_id, avaliador_id: avaliadorId,
+        workspace_id: workspaceId, card_id: avaliando.card_id, avaliado_id: avaliando.avaliado.id, avaliador_id: avaliadorId,
         entrega_no_prazo: form.entrega_no_prazo, quantidade_correcao: form.quantidade_correcao, observacao: form.observacao.trim() || null,
       })
     } else if (editando) {
       await supabase.from('avaliacoes_entrega').update({
-        avaliado_id: form.avaliado_id, entrega_no_prazo: form.entrega_no_prazo,
-        quantidade_correcao: form.quantidade_correcao, observacao: form.observacao.trim() || null,
+        entrega_no_prazo: form.entrega_no_prazo, quantidade_correcao: form.quantidade_correcao, observacao: form.observacao.trim() || null,
       }).eq('id', editando.id)
     }
     setSaving(false); fechar()
@@ -125,7 +120,7 @@ export function AvaliacoesClient({ pendentes, feitas, members, workspaceId, aval
     router.refresh()
   }
 
-  const membrosDoModal = avaliando?.membros || (editando ? members : [])
+  const avaliadoNomeModal = avaliando?.avaliado.full_name || editando?.avaliadoNome || ''
 
   return (
     <div>
@@ -150,19 +145,19 @@ export function AvaliacoesClient({ pendentes, feitas, members, workspaceId, aval
         <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
           <table className="w-full text-sm">
             <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
-              {['Tarefa', 'Colaborador(es)', 'Concluída em', ''].map(h => (
+              {['Tarefa', 'Colaborador', 'Concluída em', ''].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--notion-text-3)' }}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
               {pendentes.length === 0 ? <EmptyRow cols={4} label="Nenhuma tarefa pendente de avaliação" /> :
-                pendentes.map(c => (
-                  <tr key={c.id} className="border-b" style={{ borderColor: 'var(--notion-border)' }}>
-                    <td className="px-4 py-3 font-medium" style={{ color: 'var(--notion-text)' }}>{c.title}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--notion-text-2)' }}>{c.membros.map(m => m.full_name).join(', ')}</td>
-                    <td className="px-4 py-3 text-xs font-mono" style={{ color: 'var(--notion-text-2)' }}>{fmtDate(c.encerrado_em)}</td>
+                pendentes.map(item => (
+                  <tr key={`${item.card_id}:${item.avaliado.id}`} className="border-b" style={{ borderColor: 'var(--notion-border)' }}>
+                    <td className="px-4 py-3 font-medium" style={{ color: 'var(--notion-text)' }}>{item.cardTitulo}</td>
+                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--notion-text-2)' }}>{item.avaliado.full_name}</td>
+                    <td className="px-4 py-3 text-xs font-mono" style={{ color: 'var(--notion-text-2)' }}>{fmtDate(item.encerrado_em)}</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => abrirNovo(c)} className="px-3 py-1.5 rounded-lg text-xs font-medium"
+                      <button onClick={() => abrirNovo(item)} className="px-3 py-1.5 rounded-lg text-xs font-medium"
                         style={{ background: 'var(--notion-accent)', color: '#fff' }}>Avaliar</button>
                     </td>
                   </tr>
@@ -212,9 +207,9 @@ export function AvaliacoesClient({ pendentes, feitas, members, workspaceId, aval
       {tab === 'desempenho' && <Desempenho feitas={feitas} />}
 
       {(avaliando || editando) && (
-        <Modal title={avaliando ? `Avaliar: ${avaliando.title}` : `Retificar: ${editando?.cardTitulo}`} onClose={fechar}>
+        <Modal title={avaliando ? `Avaliar: ${avaliando.cardTitulo}` : `Retificar: ${editando?.cardTitulo}`} onClose={fechar}>
           <form onSubmit={salvar}>
-            <FormAvaliacao form={form} setForm={setForm} membros={membrosDoModal} />
+            <FormAvaliacao form={form} setForm={setForm} avaliadoNome={avaliadoNomeModal} />
             <div className="mt-4"><ModalActions onCancel={fechar} saving={saving} /></div>
           </form>
         </Modal>

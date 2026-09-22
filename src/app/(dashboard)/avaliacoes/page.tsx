@@ -40,18 +40,22 @@ export default async function AvaliacoesPage() {
     membrosDoCard.set(cm.card_id as string, arr)
   }
 
-  const avaliadosCardIds = new Set((avaliacoes || []).map(a => a.card_id as string))
+  // unicidade é por (card_id, avaliado_id): tarefa com dois colaboradores vira
+  // duas linhas de pendente, uma por pessoa — avaliar uma não consome a outra
+  const avaliadosPares = new Set((avaliacoes || []).map(a => `${a.card_id}:${a.avaliado_id}`))
 
-  const pendentes = (cardsFeitos || [])
-    .filter(c => !avaliadosCardIds.has(c.id as string))
-    .map(c => ({
-      id: c.id as string,
-      title: c.title as string,
-      due_date: c.due_date as string | null,
-      encerrado_em: c.encerrado_em as string | null,
-      membros: (membrosDoCard.get(c.id as string) || []).map(id => ({ id, full_name: membroPorId.get(id) || 'Sem nome' })),
-    }))
-    .filter(c => c.membros.length > 0)
+  const pendentes = (cardsFeitos || []).flatMap(c => {
+    const membros = membrosDoCard.get(c.id as string) || []
+    return membros
+      .filter(mid => !avaliadosPares.has(`${c.id}:${mid}`))
+      .map(mid => ({
+        card_id: c.id as string,
+        cardTitulo: c.title as string,
+        due_date: c.due_date as string | null,
+        encerrado_em: c.encerrado_em as string | null,
+        avaliado: { id: mid, full_name: membroPorId.get(mid) || 'Sem nome' },
+      }))
+  })
 
   const cardTituloPorId = new Map((cardsFeitos || []).map(c => [c.id as string, c.title as string]))
 
@@ -73,7 +77,7 @@ export default async function AvaliacoesPage() {
         gradient="linear-gradient(135deg, #2e1065 0%, #4c1d95 60%, #2e1065 100%)" />
       <div className="px-16 py-6">
         <AvaliacoesClient pendentes={pendentes} feitas={feitas}
-          members={members || []} workspaceId={ws} avaliadorId={user?.id || ''} />
+          workspaceId={ws} avaliadorId={user?.id || ''} />
       </div>
     </div>
   )
