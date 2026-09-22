@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Megaphone, TrendingUp, Plus, Radio, MousePointerClick, Percent, Target } from 'lucide-react'
+import { Megaphone, TrendingUp, Plus, Radio, Wallet, Target } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
@@ -37,10 +37,14 @@ function fmtNum(v?: number | null) {
 function fmtPct(v?: number | null) {
   return `${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
 }
+function custoPorLead(investimento: number, leads: number) {
+  return leads > 0 ? investimento / leads : 0
+}
 
 function PlataformaAnuncios({ label, color, rows }: {
   label: string; color: string; rows: AdsMetrica[]
 }) {
+  const [detalhes, setDetalhes] = useState(false)
   const ontem = rows[0]
   return (
     <div className="mb-8">
@@ -54,14 +58,12 @@ function PlataformaAnuncios({ label, color, rows }: {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             {[
-              { icon: Radio, label: 'Anúncios ativos', value: fmtNum(ontem.anuncios_ativos), color: 'var(--notion-text)' },
-              { icon: Target, label: 'Leads', value: fmtNum(ontem.leads), color },
-              { icon: MousePointerClick, label: 'Cliques', value: fmtNum(ontem.cliques), color: 'var(--notion-text)' },
-              { icon: TrendingUp, label: 'Investimento', value: fmtBRL(ontem.investimento), color: 'var(--notion-text)' },
-              { icon: Percent, label: 'CTR', value: fmtPct(ontem.ctr), color: 'var(--notion-text)' },
-              { icon: Percent, label: 'CPM / CPC', value: `${fmtBRL(ontem.cpm)} / ${fmtBRL(ontem.cpc)}`, color: 'var(--notion-text)' },
+              { icon: Radio, label: 'Anúncios no ar', value: fmtNum(ontem.anuncios_ativos), color: 'var(--notion-text)' },
+              { icon: Target, label: 'Possíveis clientes (leads)', value: fmtNum(ontem.leads), color },
+              { icon: TrendingUp, label: 'Quanto foi gasto', value: fmtBRL(ontem.investimento), color: 'var(--notion-text)' },
+              { icon: Wallet, label: 'Custo por lead', value: fmtBRL(custoPorLead(ontem.investimento, ontem.leads)), color: 'var(--notion-text)' },
             ].map((c, i) => (
               <div key={i} className="rounded-xl p-3 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
                 <span className="text-xs flex items-center gap-1" style={{ color: 'var(--notion-text-2)' }}><c.icon className="w-3 h-3" /> {c.label}</span>
@@ -72,7 +74,7 @@ function PlataformaAnuncios({ label, color, rows }: {
           <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
             <table className="w-full text-sm">
               <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
-                {['Dia', 'Ativos', 'Impressões', 'Cliques', 'Leads', 'Investimento', 'CPM', 'CTR', 'CPC'].map(h => (
+                {['Dia', 'Ativos', 'Leads', 'Gasto', 'Custo/lead', ...(detalhes ? ['Impressões', 'Cliques', 'CPM', 'CTR', 'CPC'] : [])].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--notion-text-3)' }}>{h}</th>
                 ))}
               </tr></thead>
@@ -81,18 +83,25 @@ function PlataformaAnuncios({ label, color, rows }: {
                   <tr key={r.id} className="border-b" style={{ borderColor: 'var(--notion-border)' }}>
                     <td className="px-4 py-2 text-xs font-mono" style={{ color: 'var(--notion-text-2)' }}>{fmtDate(r.data)}</td>
                     <td className="px-4 py-2 font-mono" style={{ color: 'var(--notion-text)' }}>{fmtNum(r.anuncios_ativos)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.impressoes)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.cliques)}</td>
                     <td className="px-4 py-2 font-mono" style={{ color }}>{fmtNum(r.leads)}</td>
                     <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.investimento)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpm)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtPct(r.ctr)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpc)}</td>
+                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(custoPorLead(r.investimento, r.leads))}</td>
+                    {detalhes && <>
+                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.impressoes)}</td>
+                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.cliques)}</td>
+                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpm)}</td>
+                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtPct(r.ctr)}</td>
+                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpc)}</td>
+                    </>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </ScrollX>
+          <button onClick={() => setDetalhes(d => !d)}
+            className="text-xs mt-2 hover:underline" style={{ color: 'var(--notion-text-3)' }}>
+            {detalhes ? 'Ocultar métricas técnicas' : 'Ver métricas técnicas (impressões, CPM, CTR, CPC)'}
+          </button>
         </>
       )}
     </div>
@@ -104,7 +113,7 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
   campanhas: Campanha[]; members: { id: string; full_name: string }[]; workspaceId: string
   adsMetricas: AdsMetrica[]
 }) {
-  const [tab, setTab] = useState<'campanhas' | 'anuncios'>('campanhas')
+  const [tab, setTab] = useState<'campanhas' | 'anuncios'>('anuncios')
   const [search, setSearch] = useState('')
   const [show, setShow] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -144,8 +153,8 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
       <div className="px-16 py-6">
         <div className="flex items-center gap-1 p-1 rounded-lg mb-6 w-fit" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
           {([
-            { key: 'campanhas', label: 'Campanhas' },
             { key: 'anuncios', label: 'Anúncios' },
+            { key: 'campanhas', label: 'Campanhas' },
           ] as { key: typeof tab; label: string }[]).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
