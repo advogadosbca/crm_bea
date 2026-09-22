@@ -41,19 +41,28 @@ function custoPorLead(investimento: number, leads: number) {
   return leads > 0 ? investimento / leads : 0
 }
 
-type Periodo = 'ontem' | '7d' | '30d'
-const PERIODOS: { key: Periodo; label: string; dias: number }[] = [
+type Periodo = 'ontem' | '7d' | '30d' | 'custom'
+const PERIODOS: { key: Periodo; label: string; dias?: number }[] = [
   { key: 'ontem', label: 'Ontem', dias: 1 },
   { key: '7d', label: 'Últimos 7 dias', dias: 7 },
   { key: '30d', label: 'Últimos 30 dias', dias: 30 },
+  { key: 'custom', label: 'Personalizado' },
 ]
 
-function PlataformaAnuncios({ label, color, rows, periodo }: {
-  label: string; color: string; rows: AdsMetrica[]; periodo: Periodo
+function janelaPorPeriodo(rows: AdsMetrica[], periodo: Periodo, customInicio: string, customFim: string) {
+  if (periodo === 'custom') {
+    if (!customInicio || !customFim) return []
+    return rows.filter(r => r.data >= customInicio && r.data <= customFim)
+  }
+  const dias = PERIODOS.find(p => p.key === periodo)!.dias!
+  return rows.slice(0, dias)
+}
+
+function PlataformaAnuncios({ label, color, rows, periodo, customInicio, customFim }: {
+  label: string; color: string; rows: AdsMetrica[]; periodo: Periodo; customInicio: string; customFim: string
 }) {
   const [detalhes, setDetalhes] = useState(false)
-  const dias = PERIODOS.find(p => p.key === periodo)!.dias
-  const janela = rows.slice(0, dias)
+  const janela = janelaPorPeriodo(rows, periodo, customInicio, customFim)
   const maisRecente = rows[0]
 
   if (!maisRecente) {
@@ -82,7 +91,10 @@ function PlataformaAnuncios({ label, color, rows, periodo }: {
       <div className="flex items-center gap-2 mb-3">
         <Tag label={label} color={color} />
         <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
-          {janela.length > 1 ? `${fmtDate(janela[janela.length - 1].data)} a ${fmtDate(janela[0].data)}` : `Ontem — ${fmtDate(maisRecente.data)}`}
+          {periodo === 'ontem' ? `Ontem — ${fmtDate(maisRecente.data)}`
+            : janela.length === 0 ? 'Nenhum dado no período selecionado'
+            : janela.length === 1 ? fmtDate(janela[0].data)
+            : `${fmtDate(janela[janela.length - 1].data)} a ${fmtDate(janela[0].data)}`}
         </span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -156,6 +168,8 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
 }) {
   const [tab, setTab] = useState<'campanhas' | 'anuncios'>('anuncios')
   const [periodo, setPeriodo] = useState<Periodo>('ontem')
+  const [customInicio, setCustomInicio] = useState(() => new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10))
+  const [customFim, setCustomFim] = useState(() => new Date(Date.now() - 1 * 864e5).toISOString().slice(0, 10))
   const [search, setSearch] = useState('')
   const [show, setShow] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -261,20 +275,30 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
           </>
         ) : (
           <div>
-            <div className="flex items-center gap-1 p-1 rounded-lg mb-6 w-fit" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
-              {PERIODOS.map(p => (
-                <button key={p.key} onClick={() => setPeriodo(p.key)}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                  style={{
-                    background: periodo === p.key ? 'var(--notion-bg-3)' : 'transparent',
-                    color: periodo === p.key ? 'var(--notion-text)' : 'var(--notion-text-2)',
-                  }}>
-                  {p.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-3 mb-6 flex-wrap">
+              <div className="flex items-center gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+                {PERIODOS.map(p => (
+                  <button key={p.key} onClick={() => setPeriodo(p.key)}
+                    className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    style={{
+                      background: periodo === p.key ? 'var(--notion-bg-3)' : 'transparent',
+                      color: periodo === p.key ? 'var(--notion-text)' : 'var(--notion-text-2)',
+                    }}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {periodo === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <Input type="date" value={customInicio} max={customFim} onChange={e => setCustomInicio(e.target.value)} />
+                  <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>até</span>
+                  <Input type="date" value={customFim} min={customInicio} onChange={e => setCustomFim(e.target.value)} />
+                </div>
+              )}
             </div>
             {PLATAFORMAS.map(p => (
               <PlataformaAnuncios key={p.key} label={p.label} color={p.color} periodo={periodo}
+                customInicio={customInicio} customFim={customFim}
                 rows={adsMetricas.filter(m => m.plataforma === p.key)} />
             ))}
           </div>
