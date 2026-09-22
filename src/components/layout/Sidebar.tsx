@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   Settings, Users, TrendingUp, FileText, Scale,
   Gavel, Building2, Target, Users2, Megaphone,
-  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History, Bell
+  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History, Bell, ClipboardCheck
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -29,6 +29,7 @@ const modules = [
   { href: '/metas', label: 'Metas', icon: Target },
   { href: '/membros', label: 'Membros', icon: Users2 },
   { href: '/marketing', label: 'Marketing', icon: Megaphone },
+  { href: '/avaliacoes', label: 'Avaliações', icon: ClipboardCheck },
   { href: '/ideias', label: 'Ideias', icon: Lightbulb },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
