@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { Toolbar, Modal, ModalActions, Field, Input, Select, Textarea, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
+import { DatePicker } from '@/components/ui/DatePicker'
 
 interface Alvara {
   id: string; numero?: string; descricao: string; status: string
@@ -97,8 +98,8 @@ export function AlvarasClient({ headerAssets, alvaras, contacts, workspaceId }: 
               <Field label="Descrição *" full><Input required value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} /></Field>
               <Field label="Número"><Input value={form.numero} onChange={e => setForm(f => ({ ...f, numero: e.target.value }))} /></Field>
               <Field label="Órgão"><Input value={form.orgao} onChange={e => setForm(f => ({ ...f, orgao: e.target.value }))} /></Field>
-              <Field label="Data Emissão"><Input type="date" value={form.data_emissao} onChange={e => setForm(f => ({ ...f, data_emissao: e.target.value }))} /></Field>
-              <Field label="Data Vencimento"><Input type="date" value={form.data_vencimento} onChange={e => setForm(f => ({ ...f, data_vencimento: e.target.value }))} /></Field>
+              <Field label="Data Emissão"><DatePicker value={form.data_emissao} onChange={v => setForm(f => ({ ...f, data_emissao: v }))} /></Field>
+              <Field label="Data Vencimento"><DatePicker value={form.data_vencimento} onChange={v => setForm(f => ({ ...f, data_vencimento: v }))} /></Field>
               <Field label="Status"><Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{STATUS.map(s => <option key={s}>{s}</option>)}</Select></Field>
               <Field label="Cliente"><Select value={form.contact_id} onChange={e => setForm(f => ({ ...f, contact_id: e.target.value }))}>
                 <option value="">— Nenhum —</option>{contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}

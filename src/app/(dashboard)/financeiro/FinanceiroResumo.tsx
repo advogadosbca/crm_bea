@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { TrendingUp, TrendingDown, Landmark, CalendarDays } from 'lucide-react'
+import { DatePicker } from '@/components/ui/DatePicker'
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
@@ -63,9 +64,9 @@ export function FinanceiroResumo({ entries }: { entries: FinEntry[] }) {
           {MESES.map((m, i) => <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
         </select>
         <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>ou</span>
-        <input type="date" value={de} onChange={e => setDe(e.target.value)} className="px-2 py-1.5 rounded-lg text-xs cursor-pointer" style={inputStyle} title="De" />
+        <DatePicker compact value={de} max={ate} onChange={setDe} placeholder="De" />
         <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>até</span>
-        <input type="date" value={ate} onChange={e => setAte(e.target.value)} className="px-2 py-1.5 rounded-lg text-xs cursor-pointer" style={inputStyle} title="Até" />
+        <DatePicker compact value={ate} min={de} onChange={setAte} placeholder="Até" />
         <button onClick={aplicar} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: 'var(--notion-accent)', color: '#fff' }}>Aplicar</button>
         <button onClick={mesAtual} className="px-2 py-1.5 rounded-lg text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Mês atual</button>
         <button onClick={limpar} className="px-2 py-1.5 rounded-lg text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Limpar</button>

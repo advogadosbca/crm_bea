@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { ScrollX } from '@/components/ui/ScrollX'
+import { DatePicker } from '@/components/ui/DatePicker'
 
 interface Member { id: string; full_name: string; avatar_url?: string }
 
@@ -247,8 +248,7 @@ export function ProcessosClient({ processos, members, contacts, workspaceId, hea
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--notion-text-2)' }}>Diário Judicial</label>
-                  <input type="date" value={form.diario_judicial} onChange={e => setForm(f => ({ ...f, diario_judicial: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+                  <DatePicker value={form.diario_judicial} onChange={v => setForm(f => ({ ...f, diario_judicial: v }))} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--notion-text-2)' }}>Grau de Jurisdição</label>
@@ -259,8 +259,7 @@ export function ProcessosClient({ processos, members, contacts, workspaceId, hea
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--notion-text-2)' }}>Prazo Limite</label>
-                  <input type="date" value={form.prazo_limite} onChange={e => setForm(f => ({ ...f, prazo_limite: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg text-sm" style={inputStyle} />
+                  <DatePicker value={form.prazo_limite} onChange={v => setForm(f => ({ ...f, prazo_limite: v }))} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'var(--notion-text-2)' }}>Prioridade</label>

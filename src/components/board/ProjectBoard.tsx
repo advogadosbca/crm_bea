@@ -11,6 +11,7 @@ import { RecordPanel } from '@/components/dynamic/RecordPanel'
 import { useIsAdmin } from '@/components/layout/RoleProvider'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import { fetchAllRows } from '@/lib/db-rows'
+import { Calendar as CalendarGrade } from '@/components/ui/DatePicker'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -1207,9 +1208,17 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
                 {overdue && <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(239,68,68,0.2)' }}>Em atraso</span>}
               </button>
               {pop === 'due' && (
-                <div className="absolute left-0 top-full mt-1 z-50 p-3 rounded-lg shadow-xl" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
-                  <input type="datetime-local" defaultValue={dueLocal} onChange={e => setDue(e.target.value)} className="px-2 py-1.5 rounded text-sm outline-none" style={{ background: 'var(--notion-bg-4)', color: 'var(--notion-text)' }} />
-                  {card.due_date && <button onClick={() => setDue('')} className="block mt-2 text-xs" style={{ color: '#F87171' }}>Remover prazo</button>}
+                <div className="absolute left-0 top-full mt-1 z-50 shadow-xl">
+                  <CalendarGrade value={dueLocal.slice(0, 10)}
+                    onSelect={d => setDue(d ? `${d}T${dueLocal.slice(11, 16) || '00:00'}` : '')}
+                    onClear={() => setDue('')} />
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-b-xl"
+                    style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', borderTop: 'none' }}>
+                    <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora</span>
+                    <input type="time" value={dueLocal.slice(11, 16)} disabled={!dueLocal}
+                      onChange={e => setDue(`${dueLocal.slice(0, 10) || today}T${e.target.value || '00:00'}`)}
+                      className="px-2 py-1 rounded text-xs" style={{ background: 'var(--notion-bg-4)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+                  </div>
                 </div>
               )}
             </div>

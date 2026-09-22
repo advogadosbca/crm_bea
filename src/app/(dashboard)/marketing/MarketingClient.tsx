@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { Toolbar, Modal, ModalActions, Field, Input, Select, Textarea, Tag, EmptyRow, fmtDate, fmtBRL } from '@/components/ui/primitives'
+import { DatePicker } from '@/components/ui/DatePicker'
 
 interface Campanha {
   id: string; nome: string; canal?: string; status: string
@@ -290,9 +291,9 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
               </div>
               {periodo === 'custom' && (
                 <div className="flex items-center gap-2">
-                  <Input type="date" value={customInicio} max={customFim} onChange={e => setCustomInicio(e.target.value)} />
+                  <DatePicker compact value={customInicio} max={customFim} onChange={setCustomInicio} />
                   <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>até</span>
-                  <Input type="date" value={customFim} min={customInicio} onChange={e => setCustomFim(e.target.value)} />
+                  <DatePicker compact value={customFim} min={customInicio} onChange={setCustomFim} />
                 </div>
               )}
             </div>
@@ -314,8 +315,8 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
               <Field label="Status"><Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{STATUS.map(s => <option key={s}>{s}</option>)}</Select></Field>
               <Field label="Orçamento (R$)"><Input type="number" step="0.01" value={form.orcamento} onChange={e => setForm(f => ({ ...f, orcamento: e.target.value }))} /></Field>
               <Field label="Leads gerados"><Input type="number" value={form.leads_gerados} onChange={e => setForm(f => ({ ...f, leads_gerados: e.target.value }))} /></Field>
-              <Field label="Início"><Input type="date" value={form.data_inicio} onChange={e => setForm(f => ({ ...f, data_inicio: e.target.value }))} /></Field>
-              <Field label="Fim"><Input type="date" value={form.data_fim} onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))} /></Field>
+              <Field label="Início"><DatePicker value={form.data_inicio} onChange={v => setForm(f => ({ ...f, data_inicio: v }))} /></Field>
+              <Field label="Fim"><DatePicker value={form.data_fim} onChange={v => setForm(f => ({ ...f, data_fim: v }))} /></Field>
               <Field label="Responsável" full><Select value={form.responsavel_id} onChange={e => setForm(f => ({ ...f, responsavel_id: e.target.value }))}>
                 <option value="">— Nenhum —</option>{members.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
               </Select></Field>

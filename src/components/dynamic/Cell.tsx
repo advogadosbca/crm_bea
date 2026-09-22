@@ -9,6 +9,7 @@ import {
   relationLabel, rollupText, rollupItems, rollupShown, rollupPick, makeRollupPick,
 } from '@/types/dynamic'
 import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search, ListChecks } from 'lucide-react'
+import { Calendar } from '@/components/ui/DatePicker'
 
 interface Member { id: string; full_name: string }
 
@@ -256,17 +257,41 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
 
   // ---- date ----
   if (type === 'date') {
-    if (editing) {
-      return <input ref={inputRef} type={config.withTime ? 'datetime-local' : 'date'} defaultValue={(value as string) || ''}
-        onBlur={e => { onChange(e.target.value || null); setEditing(false) }}
-        className="w-full px-2 py-1.5 text-sm outline-none" style={{ background: 'var(--notion-bg-4)', ...txt }} />
-    }
-    const v = value as string
-    return <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={() => { if (!readOnly) setEditing(true) }}>
-      {v ? (config.withTime
-        ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-        : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')) : ''}
-    </div>
+    const v = (value as string) || ''
+    const dataParte = v.slice(0, 10)
+    const horaParte = config.withTime ? v.slice(11, 16) : ''
+    return (
+      <div className="relative w-full">
+        <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={e => { if (!readOnly) openAt(e, 264) }}>
+          {v ? (config.withTime
+            ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+            : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')) : ''}
+        </div>
+        {open && pos && typeof document !== 'undefined' && createPortal(
+          <>
+            <div className="fixed inset-0" style={{ zIndex: 10050 }} onClick={() => setOpen(false)} />
+            <div style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 10051 }} onClick={e => e.stopPropagation()}>
+              <Calendar value={dataParte}
+                onSelect={novaData => {
+                  if (config.withTime) onChange(`${novaData}T${horaParte || '00:00'}`)
+                  else { onChange(novaData || null); setOpen(false) }
+                }}
+                onClear={() => { onChange(null); setOpen(false) }} />
+              {config.withTime && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 -mt-1 rounded-b-xl"
+                  style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', borderTop: 'none' }}>
+                  <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora</span>
+                  <input type="time" value={horaParte} disabled={!dataParte}
+                    onChange={e => onChange(`${dataParte}T${e.target.value || '00:00'}`)}
+                    className="px-2 py-1 rounded text-xs" style={{ background: 'var(--notion-bg-4)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+                </div>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
+      </div>
+    )
   }
 
   // ---- person ----

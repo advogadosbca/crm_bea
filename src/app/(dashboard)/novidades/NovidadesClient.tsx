@@ -10,6 +10,7 @@ import {
 import type { MapaClientes, ClienteDoProcesso } from '@/lib/clientes-por-processo'
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
 import { EditableHeader, type HeaderAssets } from '@/components/layout/EditableHeader'
+import { DatePicker } from '@/components/ui/DatePicker'
 
 export interface Classificacao {
   acao_necessaria: boolean
@@ -627,7 +628,7 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
           </Select>
         </Field>
         <Field label="Data de retorno">
-          <Input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} />
+          <DatePicker value={dataRetorno} onChange={setDataRetorno} />
         </Field>
         <Field label="Responsáveis">
           <div className="flex flex-wrap gap-1 px-2 py-1.5 rounded-lg max-h-24 overflow-y-auto"
@@ -670,9 +671,7 @@ function FormularioAprovacao({ c, cliente, membros, userId, onPronto }: {
           <input type="checkbox" checked={criarAud} onChange={e => setCriarAud(e.target.checked)} />
           Criar também linha em Audiências
           {criarAud && (
-            <input type="date" value={audData} onChange={e => setAudData(e.target.value)}
-              className="ml-1 px-2 py-1 rounded text-xs"
-              style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+            <span className="ml-1"><DatePicker compact value={audData} onChange={setAudData} /></span>
           )}
         </label>
       )}

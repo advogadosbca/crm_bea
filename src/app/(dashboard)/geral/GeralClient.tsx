@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { KanbanBoard, KanbanColumn } from '@/components/ui/KanbanBoard'
+import { DatePicker } from '@/components/ui/DatePicker'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
 import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
@@ -352,8 +353,8 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
                 <L label="Renda"><select value={form.renda} onChange={e => setForm(f => ({ ...f, renda: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp}>{RENDA_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></L>
                 <L label="Análise Jurídica"><select value={form.analise_juridica} onChange={e => setForm(f => ({ ...f, analise_juridica: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp}><option value="">—</option>{ANALISE_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></L>
                 <L label="Alerta"><select value={form.alerta} onChange={e => setForm(f => ({ ...f, alerta: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp}>{ALERTA_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></L>
-                <L label="Data de Contato"><input type="date" value={form.data_contato} onChange={e => setForm(f => ({ ...f, data_contato: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp} /></L>
-                <L label="Prazo p/ Execução"><input type="date" value={form.prazo_execucao} onChange={e => setForm(f => ({ ...f, prazo_execucao: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp} /></L>
+                <L label="Data de Contato"><DatePicker value={form.data_contato} onChange={v => setForm(f => ({ ...f, data_contato: v }))} /></L>
+                <L label="Prazo p/ Execução"><DatePicker value={form.prazo_execucao} onChange={v => setForm(f => ({ ...f, prazo_execucao: v }))} /></L>
                 <L label="Total Transações (R$)"><input type="number" step="0.01" value={form.total_transacoes} onChange={e => setForm(f => ({ ...f, total_transacoes: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp} /></L>
                 <L label="Responsável"><select value={form.responsavel_id} onChange={e => setForm(f => ({ ...f, responsavel_id: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm" style={inp}><option value="">— Sem responsável —</option>{members.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}</select></L>
                 <L label="Observação" full><textarea rows={3} value={form.observacao} onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm resize-none" style={inp} /></L>

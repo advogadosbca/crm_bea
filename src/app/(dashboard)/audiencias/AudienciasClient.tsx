@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { Toolbar, Modal, ModalActions, Field, Input, Select, Textarea, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
+import { DatePicker } from '@/components/ui/DatePicker'
 
 interface Audiencia {
   id: string; titulo: string; data_hora: string; tipo?: string; status: string
@@ -98,7 +99,7 @@ export function AudienciasClient({ headerAssets, audiencias, processos, members,
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Título *" full><Input required value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} /></Field>
-              <Field label="Data e Hora *"><Input type="datetime-local" required value={form.data_hora} onChange={e => setForm(f => ({ ...f, data_hora: e.target.value }))} /></Field>
+              <Field label="Data e Hora *"><DatePicker withTime value={form.data_hora} onChange={v => setForm(f => ({ ...f, data_hora: v }))} /></Field>
               <Field label="Tipo"><Select value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>{TIPOS.map(t => <option key={t}>{t}</option>)}</Select></Field>
               <Field label="Status"><Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{STATUS.map(s => <option key={s}>{s}</option>)}</Select></Field>
               <Field label="Local"><Input value={form.local} onChange={e => setForm(f => ({ ...f, local: e.target.value }))} placeholder="Fórum / Vara" /></Field>
