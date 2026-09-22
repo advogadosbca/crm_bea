@@ -41,69 +41,110 @@ function custoPorLead(investimento: number, leads: number) {
   return leads > 0 ? investimento / leads : 0
 }
 
-function PlataformaAnuncios({ label, color, rows }: {
-  label: string; color: string; rows: AdsMetrica[]
+type Periodo = 'ontem' | '7d' | '30d'
+const PERIODOS: { key: Periodo; label: string; dias: number }[] = [
+  { key: 'ontem', label: 'Ontem', dias: 1 },
+  { key: '7d', label: 'Últimos 7 dias', dias: 7 },
+  { key: '30d', label: 'Últimos 30 dias', dias: 30 },
+]
+
+function PlataformaAnuncios({ label, color, rows, periodo }: {
+  label: string; color: string; rows: AdsMetrica[]; periodo: Periodo
 }) {
   const [detalhes, setDetalhes] = useState(false)
-  const ontem = rows[0]
+  const dias = PERIODOS.find(p => p.key === periodo)!.dias
+  const janela = rows.slice(0, dias)
+  const maisRecente = rows[0]
+
+  if (!maisRecente) {
+    return (
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3"><Tag label={label} color={color} /></div>
+        <div className="rounded-xl p-6 border text-sm text-center" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)', color: 'var(--notion-text-3)' }}>
+          Sem dados recebidos ainda para {label}.
+        </div>
+      </div>
+    )
+  }
+
+  const totais = janela.reduce((acc, r) => ({
+    leads: acc.leads + r.leads,
+    investimento: acc.investimento + r.investimento,
+    impressoes: acc.impressoes + r.impressoes,
+    cliques: acc.cliques + r.cliques,
+  }), { leads: 0, investimento: 0, impressoes: 0, cliques: 0 })
+  const cpm = totais.impressoes > 0 ? (totais.investimento / totais.impressoes) * 1000 : 0
+  const ctr = totais.impressoes > 0 ? (totais.cliques / totais.impressoes) * 100 : 0
+  const cpc = totais.cliques > 0 ? totais.investimento / totais.cliques : 0
+
   return (
     <div className="mb-8">
       <div className="flex items-center gap-2 mb-3">
         <Tag label={label} color={color} />
-        {ontem && <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Dados de ontem — {fmtDate(ontem.data)}</span>}
+        <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
+          {janela.length > 1 ? `${fmtDate(janela[janela.length - 1].data)} a ${fmtDate(janela[0].data)}` : `Ontem — ${fmtDate(maisRecente.data)}`}
+        </span>
       </div>
-      {!ontem ? (
-        <div className="rounded-xl p-6 border text-sm text-center" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)', color: 'var(--notion-text-3)' }}>
-          Sem dados recebidos ainda para {label}.
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            {[
-              { icon: Radio, label: 'Anúncios no ar', value: fmtNum(ontem.anuncios_ativos), color: 'var(--notion-text)' },
-              { icon: Target, label: 'Possíveis clientes (leads)', value: fmtNum(ontem.leads), color },
-              { icon: TrendingUp, label: 'Quanto foi gasto', value: fmtBRL(ontem.investimento), color: 'var(--notion-text)' },
-              { icon: Wallet, label: 'Custo por lead', value: fmtBRL(custoPorLead(ontem.investimento, ontem.leads)), color: 'var(--notion-text)' },
-            ].map((c, i) => (
-              <div key={i} className="rounded-xl p-3 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
-                <span className="text-xs flex items-center gap-1" style={{ color: 'var(--notion-text-2)' }}><c.icon className="w-3 h-3" /> {c.label}</span>
-                <p className="text-lg font-semibold font-mono" style={{ color: c.color }}>{c.value}</p>
-              </div>
-            ))}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        {[
+          { icon: Radio, label: 'Anúncios no ar (hoje)', value: fmtNum(maisRecente.anuncios_ativos), color: 'var(--notion-text)' },
+          { icon: Target, label: 'Possíveis clientes (leads)', value: fmtNum(totais.leads), color },
+          { icon: TrendingUp, label: 'Quanto foi gasto', value: fmtBRL(totais.investimento), color: 'var(--notion-text)' },
+          { icon: Wallet, label: 'Custo por lead', value: fmtBRL(custoPorLead(totais.investimento, totais.leads)), color: 'var(--notion-text)' },
+        ].map((c, i) => (
+          <div key={i} className="rounded-xl p-3 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+            <span className="text-xs flex items-center gap-1" style={{ color: 'var(--notion-text-2)' }}><c.icon className="w-3 h-3" /> {c.label}</span>
+            <p className="text-lg font-semibold font-mono" style={{ color: c.color }}>{c.value}</p>
           </div>
-          <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
-            <table className="w-full text-sm">
-              <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
-                {['Dia', 'Ativos', 'Leads', 'Gasto', 'Custo/lead', ...(detalhes ? ['Impressões', 'Cliques', 'CPM', 'CTR', 'CPC'] : [])].map(h => (
-                  <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--notion-text-3)' }}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={r.id} className="border-b" style={{ borderColor: 'var(--notion-border)' }}>
-                    <td className="px-4 py-2 text-xs font-mono" style={{ color: 'var(--notion-text-2)' }}>{fmtDate(r.data)}</td>
-                    <td className="px-4 py-2 font-mono" style={{ color: 'var(--notion-text)' }}>{fmtNum(r.anuncios_ativos)}</td>
-                    <td className="px-4 py-2 font-mono" style={{ color }}>{fmtNum(r.leads)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.investimento)}</td>
-                    <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(custoPorLead(r.investimento, r.leads))}</td>
-                    {detalhes && <>
-                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.impressoes)}</td>
-                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.cliques)}</td>
-                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpm)}</td>
-                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtPct(r.ctr)}</td>
-                      <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpc)}</td>
-                    </>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollX>
-          <button onClick={() => setDetalhes(d => !d)}
-            className="text-xs mt-2 hover:underline" style={{ color: 'var(--notion-text-3)' }}>
-            {detalhes ? 'Ocultar métricas técnicas' : 'Ver métricas técnicas (impressões, CPM, CTR, CPC)'}
-          </button>
-        </>
+        ))}
+      </div>
+      {detalhes && (
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="rounded-xl p-3 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+            <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>CPM</span>
+            <p className="text-sm font-mono" style={{ color: 'var(--notion-text)' }}>{fmtBRL(cpm)}</p>
+          </div>
+          <div className="rounded-xl p-3 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+            <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>CTR</span>
+            <p className="text-sm font-mono" style={{ color: 'var(--notion-text)' }}>{fmtPct(ctr)}</p>
+          </div>
+          <div className="rounded-xl p-3 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+            <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>CPC</span>
+            <p className="text-sm font-mono" style={{ color: 'var(--notion-text)' }}>{fmtBRL(cpc)}</p>
+          </div>
+        </div>
       )}
+      <ScrollX className="rounded-xl overflow-x-auto border" style={{ borderColor: 'var(--notion-border)' }}>
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: 'var(--notion-bg-2)', borderBottom: '1px solid var(--notion-border)' }}>
+            {['Dia', 'Ativos', 'Leads', 'Gasto', 'Custo/lead', ...(detalhes ? ['Impressões', 'Cliques', 'CPM', 'CTR', 'CPC'] : [])].map(h => (
+              <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--notion-text-3)' }}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {janela.map(r => (
+              <tr key={r.id} className="border-b" style={{ borderColor: 'var(--notion-border)' }}>
+                <td className="px-4 py-2 text-xs font-mono" style={{ color: 'var(--notion-text-2)' }}>{fmtDate(r.data)}</td>
+                <td className="px-4 py-2 font-mono" style={{ color: 'var(--notion-text)' }}>{fmtNum(r.anuncios_ativos)}</td>
+                <td className="px-4 py-2 font-mono" style={{ color }}>{fmtNum(r.leads)}</td>
+                <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.investimento)}</td>
+                <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(custoPorLead(r.investimento, r.leads))}</td>
+                {detalhes && <>
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.impressoes)}</td>
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtNum(r.cliques)}</td>
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpm)}</td>
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtPct(r.ctr)}</td>
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--notion-text-2)' }}>{fmtBRL(r.cpc)}</td>
+                </>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </ScrollX>
+      <button onClick={() => setDetalhes(d => !d)}
+        className="text-xs mt-2 hover:underline" style={{ color: 'var(--notion-text-3)' }}>
+        {detalhes ? 'Ocultar métricas técnicas' : 'Ver métricas técnicas (impressões, CPM, CTR, CPC)'}
+      </button>
     </div>
   )
 }
@@ -114,6 +155,7 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
   adsMetricas: AdsMetrica[]
 }) {
   const [tab, setTab] = useState<'campanhas' | 'anuncios'>('anuncios')
+  const [periodo, setPeriodo] = useState<Periodo>('ontem')
   const [search, setSearch] = useState('')
   const [show, setShow] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -219,8 +261,20 @@ export function MarketingClient({ headerAssets, campanhas, members, workspaceId,
           </>
         ) : (
           <div>
+            <div className="flex items-center gap-1 p-1 rounded-lg mb-6 w-fit" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+              {PERIODOS.map(p => (
+                <button key={p.key} onClick={() => setPeriodo(p.key)}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                  style={{
+                    background: periodo === p.key ? 'var(--notion-bg-3)' : 'transparent',
+                    color: periodo === p.key ? 'var(--notion-text)' : 'var(--notion-text-2)',
+                  }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
             {PLATAFORMAS.map(p => (
-              <PlataformaAnuncios key={p.key} label={p.label} color={p.color}
+              <PlataformaAnuncios key={p.key} label={p.label} color={p.color} periodo={periodo}
                 rows={adsMetricas.filter(m => m.plataforma === p.key)} />
             ))}
           </div>
