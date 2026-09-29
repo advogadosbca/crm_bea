@@ -1,5 +1,6 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { clientesPorProcesso } from '@/lib/clientes-por-processo'
+import type { CasoNovo } from '@/lib/casos-novos'
 import { NovidadesClient, type Comunicacao } from './NovidadesClient'
 
 /**
@@ -26,7 +27,10 @@ export default async function Page() {
   const assets = await getPageAssets('novidades')
   const isAdmin = ['super_admin', 'admin'].includes(profile?.role || '')
 
-  const [{ data: comunicacoes }, { data: membros }, { data: tratadas }, { count: totalNovas }] = await Promise.all([
+  const [
+    { data: comunicacoes }, { data: membros }, { data: tratadas }, { count: totalNovas },
+    { data: casosPendentes }, { data: casosDecididos },
+  ] = await Promise.all([
     supabase.from('comunicacoes')
       .select('*').eq('status', 'nova').order('detectado_em', { ascending: false }).limit(LIMITE),
     supabase.from('profiles').select('id, full_name').eq('workspace_id', profile?.workspace_id || ''),
@@ -38,6 +42,10 @@ export default async function Page() {
     // que permite a tela oferecer "selecionar todas" em vez de mentir que a
     // seleção pegou tudo
     supabase.from('comunicacoes').select('id', { count: 'exact', head: true }).eq('status', 'nova'),
+    // casos novos da Sofia: os pendentes todos (é uma fila curta, cada um
+    // esperando um advogado), e só os decididos mais recentes
+    supabase.from('casos_novos').select('*').eq('status', 'pendente').order('created_at', { ascending: false }),
+    supabase.from('casos_novos').select('*').neq('status', 'pendente').order('decidido_em', { ascending: false }).limit(60),
   ])
 
   // nome e telefone resolvidos na hora, só para os processos que estão na tela
@@ -54,6 +62,8 @@ export default async function Page() {
       userId={profile?.id || ''}
       isAdmin={isAdmin}
       totalNovas={totalNovas ?? (comunicacoes?.length || 0)}
+      casosPendentes={(casosPendentes || []) as CasoNovo[]}
+      casosDecididos={(casosDecididos || []) as CasoNovo[]}
     />
   )
 }

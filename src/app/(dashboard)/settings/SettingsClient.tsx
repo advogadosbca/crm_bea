@@ -179,10 +179,11 @@ function WorkspaceTab({ workspace }: { workspace: Workspace | null }) {
  * mantém a que está lá, digitar substitui.
  */
 function IaTab() {
-  const [cfg, setCfg] = useState<{ provider: string; modelo: string; temChave: boolean; final: string | null; webhookCliente: string; atualizadaEm: string | null } | null>(null)
+  const [cfg, setCfg] = useState<{ provider: string; modelo: string; temChave: boolean; final: string | null; webhookCliente: string; webhookCaso: string; atualizadaEm: string | null } | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [modelo, setModelo] = useState('')
   const [webhook, setWebhook] = useState('')
+  const [webhookCaso, setWebhookCaso] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [testando, setTestando] = useState(false)
@@ -194,12 +195,12 @@ function IaTab() {
     const r = await fetch('/api/ia/config')
     if (!r.ok) return
     const d = await r.json()
-    setCfg(d); setModelo(d.modelo); setWebhook(d.webhookCliente || '')
+    setCfg(d); setModelo(d.modelo); setWebhook(d.webhookCliente || ''); setWebhookCaso(d.webhookCaso || '')
   }
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaved(false)
-    const body: Record<string, string> = { modelo, provider: 'gemini', webhookCliente: webhook }
+    const body: Record<string, string> = { modelo, provider: 'gemini', webhookCliente: webhook, webhookCaso }
     if (apiKey.trim()) body.apiKey = apiKey.trim()
     const r = await fetch('/api/ia/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -266,6 +267,18 @@ function IaTab() {
         <Field label="URL do webhook">
           <Input value={webhook} onChange={e => setWebhook(e.target.value)}
             placeholder="https://n8n.seudominio.com.br/webhook/aviso-cliente" />
+        </Field>
+      </div>
+
+      <div className="pt-4 border-t" style={{ borderColor: 'var(--notion-border)' }}>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>Casos novos</h3>
+        <p className="text-xs mb-3" style={{ color: 'var(--notion-text-3)' }}>
+          Webhook do n8n chamado quando o advogado aprova ou recusa um caso novo em Notificações → Casos novos.
+          O CRM manda nome, telefone, área, status e o recado para a Sofia; o n8n avisa a cliente.
+        </p>
+        <Field label="URL do webhook">
+          <Input value={webhookCaso} onChange={e => setWebhookCaso(e.target.value)}
+            placeholder="https://n8n.seudominio.com.br/webhook/caso-decidido" />
         </Field>
       </div>
 

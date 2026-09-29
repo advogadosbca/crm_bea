@@ -24,7 +24,7 @@ export async function GET() {
 
   const admin = adminClient()
   const { data } = await admin.from('workspace_secrets')
-    .select('ia_provider, ia_modelo, ia_api_key, webhook_cliente_url, updated_at')
+    .select('ia_provider, ia_modelo, ia_api_key, webhook_cliente_url, webhook_caso_url, updated_at')
     .eq('workspace_id', profile.workspace_id).maybeSingle()
 
   const chave = (data?.ia_api_key as string | undefined) || ''
@@ -34,6 +34,7 @@ export async function GET() {
     temChave: !!chave,
     final: chave ? chave.slice(-4) : null,
     webhookCliente: (data?.webhook_cliente_url as string) || '',
+    webhookCaso: (data?.webhook_caso_url as string) || '',
     atualizadaEm: data?.updated_at || null,
   })
 }
@@ -53,6 +54,7 @@ export async function PUT(req: Request) {
   // string vazia = apagar a chave; ausente = manter a que está lá
   if (typeof body.apiKey === 'string') patch.ia_api_key = body.apiKey.trim() || null
   if (typeof body.webhookCliente === 'string') patch.webhook_cliente_url = body.webhookCliente.trim() || null
+  if (typeof body.webhookCaso === 'string') patch.webhook_caso_url = body.webhookCaso.trim() || null
 
   const admin = adminClient()
   const { error } = await admin.from('workspace_secrets').upsert(patch, { onConflict: 'workspace_id' })

@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation'
 import {
   Bell, Check, X, Loader2, Sparkles, AlertTriangle, CalendarClock, Clock,
   FileText, ChevronDown, ChevronUp, Filter, Send, Ban, User, Phone,
-  Mail, MailOpen, Trash2, Scale,
+  Mail, MailOpen, Trash2, Scale, UserPlus,
 } from 'lucide-react'
 import type { MapaClientes, ClienteDoProcesso } from '@/lib/clientes-por-processo'
+import type { CasoNovo } from '@/lib/casos-novos'
+import { CasosNovos } from './CasosNovos'
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
 import { EditableHeader, type HeaderAssets } from '@/components/layout/EditableHeader'
 import { DatePicker } from '@/components/ui/DatePicker'
@@ -94,15 +96,20 @@ const LOTE_LABEL: Record<AcaoLote, string> = {
   excluir: 'excluir',
 }
 
-export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membros, userId, isAdmin, totalNovas }: {
+export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membros, userId, isAdmin, totalNovas, casosPendentes, casosDecididos }: {
   headerAssets: HeaderAssets
   /** CNJ -> cliente do processo, resolvido no servidor a cada carga */
   clientes: MapaClientes
   novas: Comunicacao[]; tratadas: Comunicacao[]; membros: Membro[]; userId: string; isAdmin: boolean
   /** total na caixa, que pode ser maior que `novas.length` (a página tem teto) */
   totalNovas: number
+  /** casos de clientes novos trazidos pela Sofia, esperando o advogado */
+  casosPendentes: CasoNovo[]; casosDecididos: CasoNovo[]
 }) {
   const router = useRouter()
+  // duas caixas que não se misturam: publicação de processo que já existe, e
+  // caso de gente que ainda nem é cliente
+  const [secao, setSecao] = useState<'processos' | 'casos'>('processos')
   const [aba, setAba] = useState<Aba>('acao')
   const [soMinhas, setSoMinhas] = useState(false)
   const [aberta, setAberta] = useState<string | null>(null)
@@ -200,6 +207,32 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
         initialBanner={headerAssets.banner} initialLogo={headerAssets.logo} canEdit={headerAssets.canEdit} />
 
       <div className="px-16 py-6 max-w-5xl">
+      {/* seção: processos x casos novos */}
+      <div className="inline-flex items-center gap-1 p-1 mb-5 rounded-lg"
+        style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+        {([
+          { id: 'processos', label: 'Processos', icon: Scale, n: totalNovas },
+          { id: 'casos', label: 'Casos novos', icon: UserPlus, n: casosPendentes.length },
+        ] as const).map(s => {
+          const ativa = secao === s.id
+          const Icone = s.icon
+          return (
+            <button key={s.id} onClick={() => setSecao(s.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors"
+              style={{ background: ativa ? 'var(--notion-bg-4)' : 'transparent', color: ativa ? 'var(--notion-text)' : 'var(--notion-text-3)' }}>
+              <Icone className="w-3.5 h-3.5" /> {s.label}
+              {s.n > 0 && (
+                <span className="px-1.5 rounded-full text-[10px] font-semibold"
+                  style={{ background: 'var(--notion-accent)', color: '#fff' }}>{s.n}</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {secao === 'casos' ? (
+        <CasosNovos pendentes={casosPendentes} decididos={casosDecididos} membros={membros} />
+      ) : (<>
       {/* barra de controle */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <button onClick={() => setSoMinhas(s => !s)}
@@ -326,6 +359,7 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
             onSelecionar={() => alternar(c.id)} />
         ))}
       </div>
+      </>)}
       </div>
     </div>
   )

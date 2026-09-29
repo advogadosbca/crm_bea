@@ -36,6 +36,7 @@ const TIPOS: Record<string, string> = {
   board_cards: 'Cartão',
   board_lists: 'Lista do quadro',
   kanban_columns: 'Coluna de funil',
+  casos_novos: 'Caso novo',
 }
 const tipoLabel = (t: string) => TIPOS[t] || t
 

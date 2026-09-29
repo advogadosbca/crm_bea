@@ -10,14 +10,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
   let workspaceName = 'Workspace'
   let novidades = 0
   if (profile?.workspace_id) {
-    const [{ data: ws }, { count }] = await Promise.all([
+    const [{ data: ws }, { count }, { count: casos }] = await Promise.all([
       supabase.from('workspaces').select('name').eq('id', profile.workspace_id).single(),
-      // contador do menu: comunicações ainda não tratadas. A RLS já restringe
-      // ao workspace, então `head: true` traz só o número.
+      // contador do menu: comunicações ainda não tratadas + casos novos
+      // esperando aprovação. A RLS já restringe ao workspace, então
+      // `head: true` traz só o número.
       supabase.from('comunicacoes').select('id', { count: 'exact', head: true }).eq('status', 'nova'),
+      supabase.from('casos_novos').select('id', { count: 'exact', head: true }).eq('status', 'pendente'),
     ])
     workspaceName = ws?.name || 'Workspace'
-    novidades = count ?? 0
+    novidades = (count ?? 0) + (casos ?? 0)
   }
 
   return (
