@@ -1,6 +1,7 @@
 'use client'
 
 import { X, Search, Plus } from 'lucide-react'
+import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 
 export const inputStyle: React.CSSProperties = {
   background: 'var(--notion-bg-3)',
@@ -41,6 +42,7 @@ export function Tag({ label, color }: { label: string; color: string }) {
 export function Toolbar({ search, setSearch, onNew, placeholder = 'Buscar...', left }: {
   search: string; setSearch: (v: string) => void; onNew: () => void; placeholder?: string; left?: React.ReactNode
 }) {
+  const somenteLeitura = useSomenteLeitura()
   return (
     <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
       <div>{left}</div>
@@ -51,11 +53,13 @@ export function Toolbar({ search, setSearch, onNew, placeholder = 'Buscar...', l
           <input placeholder={placeholder} value={search} onChange={e => setSearch(e.target.value)}
             className="bg-transparent text-sm outline-none w-40" style={{ color: 'var(--notion-text)' }} />
         </div>
-        <button onClick={onNew}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-90"
-          style={{ background: 'var(--notion-accent)', color: '#fff' }}>
-          <Plus className="w-3.5 h-3.5" /> Novo
-        </button>
+        {!somenteLeitura && (
+          <button onClick={onNew}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:opacity-90"
+            style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+            <Plus className="w-3.5 h-3.5" /> Novo
+          </button>
+        )}
       </div>
     </div>
   )

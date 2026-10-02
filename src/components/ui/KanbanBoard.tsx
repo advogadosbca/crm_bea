@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { User as UserIcon, MoreHorizontal, Plus, Check, Trash2, Pencil, Copy } from 'lucide-react'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
-import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { useIsAdmin, useSomenteLeitura } from '@/components/layout/RoleProvider'
 
 type ContactRow = Contact & { responsavel?: { full_name: string; avatar_url?: string } | null }
 
@@ -50,6 +50,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const somenteLeitura = useSomenteLeitura()
   const [columns, setColumns] = useState<KanbanColumn[]>(initialColumns)
   const [local, setLocal] = useState<ContactRow[]>(contacts)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -127,7 +128,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
           <div key={col.id}
             onDragOver={e => { e.preventDefault(); setOverCol(col.label) }}
             onDragLeave={() => setOverCol(o => o === col.label ? null : o)}
-            onDrop={() => moveTo(col.label)}
+            onDrop={() => { if (!somenteLeitura) moveTo(col.label) }}
             className="flex-shrink-0 w-64 rounded-xl p-2 transition-colors flex flex-col"
             style={{ background: overCol === col.label ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)', border: `1px solid ${overCol === col.label ? col.color : 'var(--notion-border)'}` }}>
 
@@ -187,7 +188,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
             <div className="space-y-2 min-h-[40px] overflow-y-auto overscroll-contain pr-0.5"
               style={{ maxHeight: ALTURA_MAX_COLUNA }}>
               {items.map(c => (
-                <div key={c.id} draggable
+                <div key={c.id} draggable={!somenteLeitura}
                   onDragStart={() => setDragId(c.id)}
                   onDragEnd={() => { setDragId(null); setOverCol(null) }}
                   onClick={() => onEditCard?.(c)}
@@ -195,13 +196,13 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
                   style={{ background: 'var(--notion-bg-3)', borderColor: 'var(--notion-border)', opacity: dragId === c.id ? 0.4 : 1 }}>
                   <div className="flex items-start justify-between gap-1.5 mb-1.5">
                     <p className="text-sm font-medium leading-tight" style={{ color: 'var(--notion-text)' }}>{c.name}</p>
-                    <button
+                    {!somenteLeitura && <button
                       onClick={e => { e.stopPropagation(); setCardMenu(cardMenu === c.id ? null : c.id) }}
                       onMouseDown={e => e.stopPropagation()}
                       className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover/card:opacity-100 hover:bg-[var(--notion-bg-4)] transition-all"
                       style={{ color: 'var(--notion-text-3)' }}>
                       <MoreHorizontal className="w-3.5 h-3.5" />
-                    </button>
+                    </button>}
                   </div>
 
                   {cardMenu === c.id && (
@@ -248,7 +249,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
               {items.length === 0 && <div className="text-center py-3 text-[11px]" style={{ color: 'var(--notion-text-3)' }}>—</div>}
             </div>
 
-            {onNewPage && (
+            {onNewPage && !somenteLeitura && (
               <button
                 onClick={() => onNewPage(col.label)}
                 className="mt-2 w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-4)]"
@@ -261,7 +262,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
       })}
 
       {/* Adicionar funil — criar é liberado para qualquer usuário (só excluir é de admin) */}
-      <div className="flex-shrink-0 w-64">
+      {!somenteLeitura && <div className="flex-shrink-0 w-64">
           {adding ? (
             <div className="rounded-xl p-2" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
               <input autoFocus value={newLabel} onChange={e => setNewLabel(e.target.value)}
@@ -278,7 +279,7 @@ export function KanbanBoard({ contacts, field, boardKey, initialColumns, canEdit
               <Plus className="w-3.5 h-3.5" /> Adicionar funil
             </button>
           )}
-      </div>
+      </div>}
     </ScrollX>
   )
 }

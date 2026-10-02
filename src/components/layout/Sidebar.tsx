@@ -5,11 +5,12 @@ import { usePathname } from 'next/navigation'
 import {
   Settings, Users, TrendingUp, FileText, Scale,
   Gavel, Building2, Target, Users2, Megaphone,
-  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History, Bell, ClipboardCheck
+  Lightbulb, Landmark, Home, ChevronRight, LogOut, Database, BarChart3, History, Bell, ClipboardCheck, Eye
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { useIsAdmin } from './RoleProvider'
+import { useIsAdmin, usePodeVerAba, useSomenteLeitura } from './RoleProvider'
+import { abaDaRota } from '@/lib/abas'
 
 const modules = [
   { href: '/', label: 'Início', icon: Home },
@@ -44,7 +45,11 @@ export function Sidebar({ workspaceName, novidades = 0 }: { workspaceName?: stri
   const router = useRouter()
   const supabase = createClient()
   const isAdmin = useIsAdmin()
-  const itens = isAdmin ? [...modules, ...modulosAdmin] : modules
+  const somenteLeitura = useSomenteLeitura()
+  const podeVer = usePodeVerAba()
+  // aba bloqueada pelo admin (engrenagem em Membros) some do menu; o proxy barra a rota
+  const itens = (isAdmin ? [...modules, ...modulosAdmin] : modules)
+    .filter(m => { const slug = abaDaRota(m.href); return !slug || podeVer(slug) })
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -99,6 +104,14 @@ export function Sidebar({ workspaceName, novidades = 0 }: { workspaceName?: stri
 
       {/* Logout */}
       <div className="px-2 py-3 border-t" style={{ borderColor: 'var(--notion-border)' }}>
+        {somenteLeitura && (
+          <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-md text-xs"
+            title="Seu perfil é Visualizador: você vê as informações, mas não cria, edita nem exclui nada."
+            style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
+            <Eye className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+            <span>Modo visualização</span>
+          </div>
+        )}
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]"

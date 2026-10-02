@@ -4,15 +4,15 @@ import { FinanceiroTabs } from './FinanceiroTabs'
 import { FinanceiroResumo, type FinEntry } from './FinanceiroResumo'
 import { Lock, Landmark } from 'lucide-react'
 import { fetchAllRows } from '@/lib/db-rows'
+import { podeVerAba } from '@/lib/abas'
 
 const RECEITA_KEYS = ['fin-adv-entradas', 'fin-hub-entradas']
 const DESPESA_KEYS = ['fin-adv-saidas', 'fin-hub-saidas']
 
 export default async function FinanceiroLayout({ children }: { children: React.ReactNode }) {
   const { supabase, profile } = await getAuthProfile()
-  const isAdmin = ['super_admin', 'admin'].includes(profile?.role || '')
-
-  if (!isAdmin) {
+  // padrão: só admin; o admin pode liberar para um membro na engrenagem de Membros
+  if (!podeVerAba(profile?.role, profile?.abas, 'financeiro')) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center text-center px-6">
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
@@ -21,7 +21,7 @@ export default async function FinanceiroLayout({ children }: { children: React.R
         </div>
         <h1 className="text-xl font-semibold" style={{ color: 'var(--notion-text)' }}>Acesso restrito</h1>
         <p className="text-sm mt-2 max-w-sm" style={{ color: 'var(--notion-text-2)' }}>
-          Você não tem acesso a este módulo. O <b>Financeiro</b> é restrito a administradores.
+          Você não tem acesso ao <b>Financeiro</b>. Peça a um administrador.
         </p>
       </div>
     )

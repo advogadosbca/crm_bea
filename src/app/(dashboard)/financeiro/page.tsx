@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation'
 import { getAuthProfile } from '@/lib/auth'
+import { podeVerAba } from '@/lib/abas'
 
 export default async function FinanceiroPage() {
   const { supabase, profile } = await getAuthProfile()
-  if (!['super_admin', 'admin'].includes(profile?.role || '')) return null // o layout mostra o cadeado
+  if (!podeVerAba(profile?.role, profile?.abas, 'financeiro')) return null // o layout mostra o cadeado
 
   const { data } = await supabase
     .from('db_tables').select('module_key')

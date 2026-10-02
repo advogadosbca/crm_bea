@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { initials, personColor } from '@/lib/people'
 import { MessageSquare, Send, Trash2 } from 'lucide-react'
+import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 
 interface Member { id: string; full_name: string }
 interface RowComment { id: string; user_id: string | null; text: string; created_at: string }
@@ -16,6 +17,7 @@ export function RecordComments({ rowId, userId, members, compact = false }: {
   rowId: string; userId: string; members: Member[]; compact?: boolean
 }) {
   const supabase = createClient()
+  const somenteLeitura = useSomenteLeitura()
   const [comments, setComments] = useState<RowComment[] | null>(null)
   const [text, setText] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -61,7 +63,7 @@ export function RecordComments({ rowId, userId, members, compact = false }: {
         )}
       </h3>
 
-      <div className="flex gap-2 mb-3">
+      {!somenteLeitura && <div className="flex gap-2 mb-3">
         <textarea value={text} onChange={e => setText(e.target.value)} rows={1}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add() } }}
           placeholder="Escreva um comentário... (Enter envia, Shift+Enter quebra linha)"
@@ -72,7 +74,7 @@ export function RecordComments({ rowId, userId, members, compact = false }: {
           style={{ background: 'var(--notion-accent)', color: '#fff' }}>
           <Send className="w-3.5 h-3.5" />
         </button>
-      </div>
+      </div>}
 
       {comments === null ? (
         <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Carregando...</p>

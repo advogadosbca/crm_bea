@@ -1,5 +1,6 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { HomeHeader } from '@/components/layout/HomeHeader'
+import { abaDaRota, podeVerAba } from '@/lib/abas'
 import Link from 'next/link'
 import {
   Settings, Landmark, FileText, TrendingUp,
@@ -27,6 +28,7 @@ const modules = [
 export default async function HomePage() {
   const { supabase, profile } = await getAuthProfile()
   const wsId = profile?.workspace_id || ''
+  const visiveis = modules.filter(m => podeVerAba(profile?.role, profile?.abas, abaDaRota(m.href) || ''))
 
   const [{ data: workspace }, { data: members }, assets] = await Promise.all([
     supabase.from('workspaces').select('name, banner_url, logo_url').eq('id', wsId).single(),
@@ -92,7 +94,7 @@ export default async function HomePage() {
             Menu
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {modules.map((mod, i) => {
+            {visiveis.map((mod, i) => {
               const Icon = mod.icon
               return (
                 <Link key={mod.href} href={mod.href}

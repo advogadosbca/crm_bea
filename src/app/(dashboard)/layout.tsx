@@ -1,6 +1,7 @@
 import { getAuthProfile } from '@/lib/auth'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { RoleProvider } from '@/components/layout/RoleProvider'
+import { AvisoSomenteLeitura } from '@/components/layout/AvisoSomenteLeitura'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -23,9 +24,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <RoleProvider role={profile?.role || 'colaborador'}>
+    <RoleProvider role={profile?.role || 'colaborador'} abas={profile?.abas || {}}>
       <div className="flex min-h-screen">
         <Sidebar workspaceName={workspaceName} novidades={novidades} />
+        <AvisoSomenteLeitura />
         {/* min-w-0 no lugar de overflow-auto: o overflow criava um scrollport que
             anulava o position:sticky dos filhos (barra do ScrollX). O min-w-0 mantém
             o mesmo efeito prático — deixar o flex item encolher para que as tabelas

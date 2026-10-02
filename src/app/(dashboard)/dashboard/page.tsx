@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react'
 import { DBColumn, displayValue } from '@/types/dynamic'
 import { DashboardClient, type FinRow } from './DashboardClient'
 import { fetchAllRows } from '@/lib/db-rows'
+import { podeVerAba } from '@/lib/abas'
 
 const RECEITA_KEYS = ['fin-adv-entradas', 'fin-hub-entradas']
 const DESPESA_KEYS = ['fin-adv-saidas', 'fin-hub-saidas']
@@ -10,17 +11,18 @@ const norm = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').to
 
 export default async function DashboardPage() {
   const { supabase, profile } = await getAuthProfile()
-  const isAdmin = ['super_admin', 'admin'].includes(profile?.role || '')
+  // padrão: só admin; o admin pode liberar para um membro na engrenagem de Membros
+  const liberado = podeVerAba(profile?.role, profile?.abas, 'dashboard')
   const ws = profile?.workspace_id || ''
 
-  if (!isAdmin) {
+  if (!liberado) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center text-center px-6">
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
           <Lock className="w-7 h-7" style={{ color: 'var(--notion-text-3)' }} />
         </div>
         <h1 className="text-xl font-semibold" style={{ color: 'var(--notion-text)' }}>Acesso restrito</h1>
-        <p className="text-sm mt-2 max-w-sm" style={{ color: 'var(--notion-text-2)' }}>O <b>Dashboard</b> financeiro é restrito a administradores.</p>
+        <p className="text-sm mt-2 max-w-sm" style={{ color: 'var(--notion-text-2)' }}>Você não tem acesso ao <b>Dashboard</b> financeiro. Peça a um administrador.</p>
       </div>
     )
   }

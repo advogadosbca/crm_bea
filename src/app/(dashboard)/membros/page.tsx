@@ -9,7 +9,7 @@ export default async function Page() {
 
   const { data: members } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, avatar_url, is_active, created_at')
+    .select('id, full_name, email, role, avatar_url, is_active, created_at, abas')
     .eq('workspace_id', ws || '')
     .order('created_at', { ascending: true })
 

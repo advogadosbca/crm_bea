@@ -1,4 +1,5 @@
 import { getAuthProfile } from '@/lib/auth'
+import { ehVisualizador } from '@/lib/abas'
 import { adminClient } from '@/lib/api-auth'
 
 /**
@@ -54,6 +55,7 @@ interface LinhaSelecionavel {
 export async function POST(req: Request) {
   const { profile } = await getAuthProfile()
   if (!profile) return Response.json({ error: 'Não autenticado.' }, { status: 401 })
+  if (ehVisualizador(profile.role)) return Response.json({ error: 'Seu acesso é somente de visualização.' }, { status: 403 })
 
   const body = await req.json().catch(() => ({}))
   const acao = String(body.acao || '') as Acao

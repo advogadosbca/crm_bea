@@ -8,7 +8,7 @@ import { DBColumn, DBRow, DataSource, SelectOption, primaryValue } from '@/types
 import { initials, personColor } from '@/lib/people'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { RecordPanel } from '@/components/dynamic/RecordPanel'
-import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { useIsAdmin, useSomenteLeitura } from '@/components/layout/RoleProvider'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import { fetchAllRows } from '@/lib/db-rows'
 import { Calendar as CalendarGrade } from '@/components/ui/DatePicker'
@@ -178,6 +178,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
   const [openCard, setOpenCard] = useState<string | null>(null)
   const [listMenu, setListMenu] = useState<string | null>(null)
   const isAdmin = useIsAdmin()
+  const somenteLeitura = useSomenteLeitura()
   const boardRef = useRef<HTMLDivElement>(null)
   // filtro por responsável: vazio = todos; '__none__' = cartões sem ninguém
   const [filtro, setFiltro] = useState<string[]>([])
@@ -619,15 +620,15 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
             <div key={list.id}
               onDragOver={e => { e.preventDefault(); setOverList(list.id) }}
               onDragLeave={() => setOverList(o => o === list.id ? null : o)}
-              onDrop={() => moveTo(list.id)}
+              onDrop={() => { if (!somenteLeitura) moveTo(list.id) }}
               className="flex-shrink-0 w-64 rounded-xl p-2 transition-colors flex flex-col"
               style={{ background: overList === list.id ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
               <div className="flex items-center gap-2 px-1.5 py-1 mb-2 relative flex-shrink-0">
-                <input defaultValue={list.title} onBlur={e => renameList(list.id, e.target.value.trim() || list.title)}
+                <input defaultValue={list.title} readOnly={somenteLeitura} onBlur={e => !somenteLeitura && renameList(list.id, e.target.value.trim() || list.title)}
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                   className="flex-1 bg-transparent text-sm font-semibold outline-none" style={{ color: 'var(--notion-text)' }} />
                 <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>{listCards.length}</span>
-                <button onClick={() => setListMenu(listMenu === list.id ? null : list.id)} className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><MoreHorizontal className="w-3.5 h-3.5" /></button>
+                {!somenteLeitura && <button onClick={() => setListMenu(listMenu === list.id ? null : list.id)} className="p-0.5 rounded hover:bg-[var(--notion-bg-4)]" style={{ color: 'var(--notion-text-3)' }}><MoreHorizontal className="w-3.5 h-3.5" /></button>}
                 {listMenu === list.id && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setListMenu(null)} />
@@ -652,7 +653,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                   const atraso = diasDeAtraso(card)
                   const corAtraso = atraso !== null ? corDoAtraso(atraso) : null
                   return (
-                    <div key={card.id} id={`card-${card.id}`} draggable
+                    <div key={card.id} id={`card-${card.id}`} draggable={!somenteLeitura}
                       onDragStart={() => setDragId(card.id)} onDragEnd={() => { setDragId(null); setOverList(null) }}
                       onClick={() => setOpenCard(card.id)}
                       className="rounded-lg p-2.5 border cursor-pointer transition-all hover:border-[var(--notion-accent)]"
@@ -711,7 +712,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
                   )
                 })}
 
-                {addingIn === list.id ? (
+                {somenteLeitura ? null : addingIn === list.id ? (
                   <textarea autoFocus value={newCard} onChange={e => setNewCard(e.target.value)}
                     onBlur={() => addCard(list.id)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addCard(list.id) } if (e.key === 'Escape') { setAddingIn(null); setNewCard('') } }}
@@ -728,6 +729,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
         })}
 
         {/* Adicionar lista */}
+        {!somenteLeitura && (
         <div className="flex-shrink-0 w-64">
           {addingList ? (
             <div className="rounded-xl p-2" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
@@ -741,6 +743,7 @@ export function ProjectBoard({ lists: initLists, cards: initCards, labels: initL
             </button>
           )}
         </div>
+        )}
       </ScrollX>
 
       {current && (
@@ -769,6 +772,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const somenteLeitura = useSomenteLeitura()
   const [title, setTitle] = useState(card.title)
   const [desc, setDesc] = useState(card.description || '')
   const [editDesc, setEditDesc] = useState(false)
@@ -1082,10 +1086,11 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
       onClick={e => e.target === e.currentTarget && fechar()}>
       <div className="w-full max-w-6xl my-8 rounded-2xl animate-fade-in" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
-          <select value={card.list_id} onChange={e => moveToList(e.target.value)} className="text-xs px-2 py-1 rounded-md outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
+          <select value={card.list_id} disabled={somenteLeitura} onChange={e => moveToList(e.target.value)} className="text-xs px-2 py-1 rounded-md outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
             {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
           </select>
           <div className="flex items-center gap-1">
+            {!somenteLeitura && (<>
             {state === 'open' ? (
               <>
                 <button onClick={() => setCardState('done')} className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium" style={{ background: 'rgba(16,185,129,0.15)', color: '#34D399' }}>
@@ -1117,6 +1122,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
                 <Archive className="w-3.5 h-3.5" /> Arquivar
               </button>
             )}
+            </>)}
             {isAdmin && <button onClick={deleteCard} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: '#F87171' }}><Trash2 className="w-4 h-4" /></button>}
             <button onClick={fechar} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>
@@ -1124,6 +1130,8 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
 
         {/* 3/5 + 2/5: o histórico ganha mais largura que o antigo 1/3, para o
             comentário não quebrar em muitas linhas. Abaixo de lg, empilha. */}
+        {/* visualizador: tudo do cartão fica desabilitado de uma vez (o fieldset desliga botões e campos) */}
+        <fieldset disabled={somenteLeitura} className="min-w-0 m-0 p-0 border-0">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 p-5">
           {/* coluna principal */}
           <div className="lg:col-span-3 space-y-5">
@@ -1407,6 +1415,7 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
             <button onClick={addLinkAttachment} disabled={!linkUrl.trim()} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium disabled:opacity-50" style={{ background: 'var(--notion-accent)', color: '#fff' }}><Link2 className="w-3.5 h-3.5" /> Anexar link</button>
           </Popover>
         )}
+        </fieldset>
       </div>
 
       {/* ficha do cliente ou do processo, o mesmo painel lateral das fontes de

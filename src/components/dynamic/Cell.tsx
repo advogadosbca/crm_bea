@@ -10,6 +10,7 @@ import {
 } from '@/types/dynamic'
 import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search, ListChecks } from 'lucide-react'
 import { Calendar } from '@/components/ui/DatePicker'
+import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 
 interface Member { id: string; full_name: string }
 
@@ -144,7 +145,10 @@ function Chip({ opt, onRemove }: { opt: SelectOption; onRemove?: () => void }) {
   )
 }
 
-export function Cell({ column, value, members, rowMeta, onChange, onUpdateOptions, sources = [], row, tableColumns = [], readOnly = false, onOpenRecord }: Props) {
+export function Cell({ column, value, members, rowMeta, onChange, onUpdateOptions, sources = [], row, tableColumns = [], readOnly: readOnlyProp = false, onOpenRecord }: Props) {
+  // visualizador vê toda célula como somente leitura, em qualquer tabela ou painel
+  const somenteLeitura = useSomenteLeitura()
+  const readOnly = readOnlyProp || somenteLeitura
   const { type, config } = column
   const [editing, setEditing] = useState(false)
   const [open, setOpen] = useState(false)

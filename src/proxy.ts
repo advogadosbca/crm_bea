@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { abaDaRota, podeVerAba } from '@/lib/abas'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -37,6 +38,17 @@ export async function proxy(request: NextRequest) {
   // logado tentando acessar login/forgot vai pro app; reset/definir-senha são permitidos mesmo logado (sessão de convite/recuperação)
   if (isAuthed && (path.startsWith('/login') || path.startsWith('/forgot-password'))) {
     return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  // aba bloqueada pelo admin (engrenagem em Membros): esconder do menu não basta,
+  // o endereço digitado direto também volta para o Início. Roda aqui e não no
+  // layout porque o layout não re-renderiza na navegação entre páginas.
+  const aba = isAuthed ? abaDaRota(path) : null
+  if (aba) {
+    const { data: perfil } = await supabase.from('profiles').select('role, abas').eq('id', user!.id).single()
+    if (perfil && !podeVerAba(perfil.role, perfil.abas, aba)) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
   }
 
   return supabaseResponse

@@ -14,7 +14,7 @@ import {
 import { TypePicker, TypeIcon, IconPicker } from './TypePicker'
 import { Cell } from './Cell'
 import { RecordPanel } from './RecordPanel'
-import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { useIsAdmin, useSomenteLeitura } from '@/components/layout/RoleProvider'
 import { ScrollX } from '@/components/ui/ScrollX'
 import { Aviso, useAviso } from '@/components/ui/Aviso'
 import { disparaPromocao, promoverLead } from '@/lib/promover-lead'
@@ -53,6 +53,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const somenteLeitura = useSomenteLeitura()
   const { msg, mostrar } = useAviso()
   const [columns, setColumns] = useState<DBColumn[]>(initialColumns)
   const [rows, setRows] = useState<DBRow[]>(initialRows)
@@ -437,7 +438,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
         <td className="w-[68px] align-middle text-center whitespace-nowrap">
           {/* arquivar é reversível e some da vista, não do banco: qualquer um da
               equipe pode; excluir continua só para admin */}
-          {onArquivar && (
+          {onArquivar && !somenteLeitura && (
             <button onClick={() => onArquivar(row.id, !row.arquivado_em)}
               title={row.arquivado_em ? 'Tirar do arquivo' : 'Arquivar (sai da lista, continua no sistema)'}
               className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-[var(--notion-bg-4)] transition-all" style={{ color: 'var(--notion-text-3)' }}>
@@ -463,10 +464,10 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
             <tr>
               {visible.map(col => (
                 <th key={col.id} className="relative text-left border-b min-w-[160px]"
-                  draggable={renaming !== col.id}
+                  draggable={renaming !== col.id && !somenteLeitura}
                   onDragStart={e => { setDragCol(col.id); e.dataTransfer.effectAllowed = 'move' }}
                   onDragEnd={() => { setDragCol(null); setDragOverCol(null) }}
-                  onDragOver={e => { if (dragCol && dragCol !== col.id) { e.preventDefault(); setDragOverCol(col.id) } }}
+                  onDragOver={e => { if (dragCol && dragCol !== col.id && !somenteLeitura) { e.preventDefault(); setDragOverCol(col.id) } }}
                   onDragLeave={() => setDragOverCol(c => (c === col.id ? null : c))}
                   onDrop={e => { e.preventDefault(); if (dragCol) moveColumn(dragCol, col.id); setDragCol(null); setDragOverCol(null) }}
                   style={{
@@ -525,17 +526,19 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
                       onUpdateOptions={opts => updateColumnOptions(col.id, opts)}
                       onSetConfig={patch => setColumnConfig(col.id, patch)}
                       sources={liveSources} tableColumns={columns}
-                      isAuto={AUTO_TYPES.includes(col.type)} isAdmin={isAdmin} />
+                      isAuto={AUTO_TYPES.includes(col.type)} isAdmin={isAdmin} somenteLeitura={somenteLeitura} />
                   )}
                 </th>
               ))}
               <th className="border-b w-10 px-1" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                <div className="relative">
-                  <button onClick={() => addColumn('text', columns.length)} title="Adicionar coluna"
-                    className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--notion-bg-2)]" style={{ color: 'var(--notion-text-3)' }}>
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
+                {!somenteLeitura && (
+                  <div className="relative">
+                    <button onClick={() => addColumn('text', columns.length)} title="Adicionar coluna"
+                      className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--notion-bg-2)]" style={{ color: 'var(--notion-text-3)' }}>
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </th>
             </tr>
           </thead>
@@ -556,7 +559,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
               ))
               : displayRows.map(renderRow)}
             {/* na gaveta não se cria registro: ele nasceria ativo e sumiria da tela */}
-            {!verArquivados && (
+            {!verArquivados && !somenteLeitura && (
               <tr>
                 <td colSpan={visible.length + 1} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
                   <button onClick={addRow} className="w-full flex items-center gap-1.5 px-2.5 py-2 text-xs hover:bg-[rgba(255,255,255,0.02)] transition-colors" style={{ color: 'var(--notion-text-3)' }}>
@@ -596,7 +599,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
           )
         })}
         {sort && <button onClick={() => setSort(null)} className="hover:text-[var(--notion-text-2)]">Limpar ordenação</button>}
-        {hiddenCount > 0 && <button onClick={unhideAll} className="hover:text-[var(--notion-text-2)]">Mostrar {hiddenCount} coluna(s) oculta(s)</button>}
+        {hiddenCount > 0 && !somenteLeitura && <button onClick={unhideAll} className="hover:text-[var(--notion-text-2)]">Mostrar {hiddenCount} coluna(s) oculta(s)</button>}
         {undoDepth > 0 && (
           <button onClick={() => doUndo()} className="inline-flex items-center gap-1 hover:text-[var(--notion-text-2)]" title="Desfazer última ação (Ctrl+Z)">
             <Undo2 className="w-3.5 h-3.5" /> Desfazer ({undoDepth})
@@ -622,7 +625,7 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
 }
 
 // ---------- Menu de coluna ----------
-function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRename, onChangeType, onSort, fillMode, onSetFillMode, onHide, onInsertLeft, onInsertRight, onDuplicate, onDelete, onUpdateOptions, onSetConfig, sources, tableColumns, isAuto, isAdmin }: {
+function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRename, onChangeType, onSort, fillMode, onSetFillMode, onHide, onInsertLeft, onInsertRight, onDuplicate, onDelete, onUpdateOptions, onSetConfig, sources, tableColumns, isAuto, isAdmin, somenteLeitura }: {
   col: DBColumn; typeLabel: string; pos: { left: number; top: number } | null; onClose: () => void; submenu: 'none' | 'type' | 'edit' | 'icon'
   setSubmenu: (s: 'none' | 'type' | 'edit' | 'icon') => void
   onRename: () => void; onChangeType: (t: ColumnType) => void; onSort: (d: 'asc' | 'desc') => void
@@ -634,6 +637,8 @@ function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRenam
   sources: DataSource[]; tableColumns: DBColumn[]; isAuto: boolean
   /** só admin vê e liga/desliga a restrição "somente admins" */
   isAdmin: boolean
+  /** visualizador: o menu fica só com ordenar e filtrar (nada que grave) */
+  somenteLeitura: boolean
 }) {
   const Item = ({ icon: Icon, label, onClick, danger, arrow, active }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void; danger?: boolean; arrow?: boolean; active?: boolean }) => (
     <button onClick={onClick} className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-[var(--notion-bg-4)] transition-colors" style={{ color: danger ? '#F87171' : active ? 'var(--notion-accent)' : 'var(--notion-text)' }}>
@@ -662,6 +667,15 @@ function ColumnMenu({ col, typeLabel, pos, onClose, submenu, setSubmenu, onRenam
           <RelationConfig col={col} sources={sources} tableColumns={tableColumns} onSet={onSetConfig} onBack={() => setSubmenu('none')} />
         ) : submenu === 'edit' && isRollup ? (
           <RollupConfig col={col} sources={sources} tableColumns={tableColumns} onSet={onSetConfig} onBack={() => setSubmenu('none')} />
+        ) : somenteLeitura ? (
+          <>
+            <Item icon={ArrowUpDown} label="Ordenar crescente" onClick={() => onSort('asc')} />
+            <Item icon={ArrowUpDown} label="Ordenar decrescente" onClick={() => onSort('desc')} />
+            <Item icon={CircleSlash} label="Mostrar só vazios" active={fillMode === 'empty'}
+              onClick={() => onSetFillMode(fillMode === 'empty' ? undefined : 'empty')} />
+            <Item icon={CircleDot} label="Mostrar só preenchidos" active={fillMode === 'not_empty'}
+              onClick={() => onSetFillMode(fillMode === 'not_empty' ? undefined : 'not_empty')} />
+          </>
         ) : (
           <>
             <Item icon={Pencil} label="Renomear" onClick={onRename} />

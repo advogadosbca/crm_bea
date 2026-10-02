@@ -19,7 +19,7 @@ import { RecordPanel as RelationRecordPanel } from './RecordPanel'
 import { RecordComments } from './RecordComments'
 import { RecordTasks } from '@/components/board/RecordTasks'
 import { ScrollX } from '@/components/ui/ScrollX'
-import { useIsAdmin } from '@/components/layout/RoleProvider'
+import { useIsAdmin, useSomenteLeitura } from '@/components/layout/RoleProvider'
 import { Aviso, useAviso } from '@/components/ui/Aviso'
 import { disparaPromocao, promoverLead } from '@/lib/promover-lead'
 import { TypeIcon } from './TypePicker'
@@ -205,6 +205,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const somenteLeitura = useSomenteLeitura()
   const { msg, mostrar } = useAviso()
   const [columns, setColumns] = useState(initialColumns)
   const [rows, setRows] = useState(initialRows)
@@ -490,12 +491,13 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingView(null) }}
                   className="px-2 py-1 rounded text-xs w-28 outline-none" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-accent)' }} />
               ) : (
-                <button onClick={() => { setExibirSub(false); setVisSub(false); if (isActive) setViewMenu(viewMenu === v.id ? null : v.id); else setActiveId(v.id) }}
-                  onContextMenu={e => { e.preventDefault(); setExibirSub(false); setVisSub(false); setActiveId(v.id); setViewMenu(v.id) }}
+                // o menu da visualização só tem ações que gravam: o visualizador só troca de aba
+                <button onClick={() => { setExibirSub(false); setVisSub(false); if (!isActive) setActiveId(v.id); else if (!somenteLeitura) setViewMenu(viewMenu === v.id ? null : v.id) }}
+                  onContextMenu={e => { e.preventDefault(); if (somenteLeitura) return; setExibirSub(false); setVisSub(false); setActiveId(v.id); setViewMenu(v.id) }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
                   style={{ background: isActive ? 'var(--notion-bg-3)' : 'transparent', color: isActive ? 'var(--notion-text)' : 'var(--notion-text-2)' }}>
                   <Icon className="w-3.5 h-3.5" /> {v.name}
-                  {isActive && <MoreHorizontal className="w-3 h-3 ml-0.5" style={{ color: 'var(--notion-text-3)' }} />}
+                  {isActive && !somenteLeitura && <MoreHorizontal className="w-3 h-3 ml-0.5" style={{ color: 'var(--notion-text-3)' }} />}
                 </button>
               )}
               {viewMenu === v.id && (
@@ -534,7 +536,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
           )
         })}
         {/* + adicionar visualização */}
-        <div className="relative">
+        {!somenteLeitura && <div className="relative">
           <button onClick={() => setAddingView(a => !a)} className="p-1.5 rounded-md hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }} title="Adicionar uma nova visualização">
             <Plus className="w-4 h-4" />
           </button>
@@ -554,7 +556,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
               </div>
             </>
           )}
-        </div>
+        </div>}
         {/* busca (lupa) + visibilidade das propriedades */}
         <div className="flex-1" />
         <div className="relative flex items-center gap-1">
@@ -583,7 +585,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
           </button>
           {/* criar registro dentro da gaveta não faz sentido: ele nasceria ativo
               e sumiria da tela no mesmo instante */}
-          {!verArquivados && (
+          {!verArquivados && !somenteLeitura && (
             <button onClick={addRowTop} title="Criar um registro e abrir a ficha"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-opacity hover:opacity-90"
               style={{ background: 'var(--notion-accent)', color: '#fff' }}>
@@ -723,8 +725,9 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                   ) : (
                     <>
                       <p className="text-[10px] uppercase tracking-wider px-2 pt-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Ver configurações</p>
-                      <SettingsRow icon={viewMeta(vt).icon} label="Layout" value={viewMeta(vt).label} arrow onClick={() => setCfgTab('layout')} />
-                      <SettingsRow icon={Eye} label="Visibilidade da propriedade" value={String(visibleCount)} arrow onClick={() => setCfgTab('visibility')} />
+                      {/* layout e visibilidade gravam no banco; filtrar/ordenar/agrupar/cor ficam só no navegador */}
+                      {!somenteLeitura && <SettingsRow icon={viewMeta(vt).icon} label="Layout" value={viewMeta(vt).label} arrow onClick={() => setCfgTab('layout')} />}
+                      {!somenteLeitura && <SettingsRow icon={Eye} label="Visibilidade da propriedade" value={String(visibleCount)} arrow onClick={() => setCfgTab('visibility')} />}
                       <SettingsRow icon={Filter} label="Filtrar" value={vcfg.filters.length ? String(vcfg.filters.length) : undefined} arrow onClick={() => setCfgTab('filter')} />
                       <SettingsRow icon={ArrowUpDown} label="Ordenar" value={vcfg.sort ? colName(vcfg.sort.colId) : undefined} arrow onClick={() => setCfgTab('sort')} />
                       <SettingsRow icon={Layers} label="Agrupar" value={vcfg.groupColId ? colName(vcfg.groupColId) : undefined} arrow onClick={() => setCfgTab('group')} />
@@ -733,7 +736,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                       <div className="my-1 border-t" style={{ borderColor: 'var(--notion-border)' }} />
                       <p className="text-[10px] uppercase tracking-wider px-2 pt-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Configurações da fonte de dados</p>
                       <SettingsRow icon={Database} label="Fonte" value={sourceName} arrow onClick={() => { setCfgOpen(false); router.push(`/tabelas?t=${tableId}`) }} />
-                      <SettingsRow icon={SlidersHorizontal} label="Editar propriedades" arrow onClick={() => setCfgTab('visibility')} />
+                      {!somenteLeitura && <SettingsRow icon={SlidersHorizontal} label="Editar propriedades" arrow onClick={() => setCfgTab('visibility')} />}
                       <SettingsRow icon={Table2} label="Gerenciar fontes de dados" arrow onClick={() => { setCfgOpen(false); router.push('/tabelas') }} />
                     </>
                   )}
@@ -798,7 +801,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
               <div key={o.id}
                 onDragOver={e => { e.preventDefault(); setOverCol(o.id) }}
                 onDragLeave={() => setOverCol(x => x === o.id ? null : x)}
-                onDrop={() => dragId && moveTo(dragId, o.id)}
+                onDrop={() => dragId && !somenteLeitura && moveTo(dragId, o.id)}
                 className="flex-shrink-0 w-72 rounded-xl p-2 transition-colors flex flex-col"
                 style={{ background: overCol === o.id ? 'var(--notion-bg-3)' : 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
                 <div className="flex items-center gap-2 px-1.5 py-1 mb-2 flex-shrink-0">
@@ -809,7 +812,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                 <div className="space-y-2 overflow-y-auto overscroll-contain pr-0.5"
                   style={{ maxHeight: ALTURA_MAX_COLUNA }}>
                   {cardsHere.map(r => (
-                    <div key={r.id} draggable
+                    <div key={r.id} draggable={!somenteLeitura}
                       onDragStart={() => setDragId(r.id)} onDragEnd={() => { setDragId(null); setOverCol(null) }}
                       onClick={() => setOpenRow(r.id)}
                       className="rounded-lg p-3 border cursor-pointer transition-all hover:border-[var(--notion-accent)]"
@@ -834,9 +837,11 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                     </div>
                   ))}
                 </div>
-                <button onClick={() => addCard(o.id)} className="w-full flex items-center gap-1.5 px-2 py-1.5 mt-2 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)] flex-shrink-0" style={{ color: 'var(--notion-text-3)' }}>
-                  <Plus className="w-3.5 h-3.5" /> Nova página
-                </button>
+                {!somenteLeitura && (
+                  <button onClick={() => addCard(o.id)} className="w-full flex items-center gap-1.5 px-2 py-1.5 mt-2 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)] flex-shrink-0" style={{ color: 'var(--notion-text-3)' }}>
+                    <Plus className="w-3.5 h-3.5" /> Nova página
+                  </button>
+                )}
               </div>
             )
           })}
@@ -866,6 +871,7 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
   const supabase = createClient()
   const router = useRouter()
   const isAdmin = useIsAdmin()
+  const somenteLeitura = useSomenteLeitura()
   const { msg, mostrar } = useAviso()
   const [nested, setNested] = useState<{ source: DataSource; row: DBRow } | null>(null)
   const titleCol = [...columns].sort((a, b) => a.position - b.position).find(c => c.type === 'text') || columns[0]
@@ -909,11 +915,13 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
             )}
           </span>
           <div className="flex items-center gap-1">
-            <button onClick={() => { onArquivar(row.id, !row.arquivado_em); if (!row.arquivado_em) onClose() }}
-              title={row.arquivado_em ? 'Tirar do arquivo e voltar para a lista' : 'Sai da lista, continua no sistema e na ficha do cliente'}
-              className="flex items-center gap-1.5 px-2 py-1 rounded text-xs hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-2)' }}>
-              {row.arquivado_em ? <><ArchiveRestore className="w-3.5 h-3.5" /> Desarquivar</> : <><Archive className="w-3.5 h-3.5" /> Arquivar</>}
-            </button>
+            {!somenteLeitura && (
+              <button onClick={() => { onArquivar(row.id, !row.arquivado_em); if (!row.arquivado_em) onClose() }}
+                title={row.arquivado_em ? 'Tirar do arquivo e voltar para a lista' : 'Sai da lista, continua no sistema e na ficha do cliente'}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-xs hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-2)' }}>
+                {row.arquivado_em ? <><ArchiveRestore className="w-3.5 h-3.5" /> Desarquivar</> : <><Archive className="w-3.5 h-3.5" /> Arquivar</>}
+              </button>
+            )}
             {isAdmin && <button onClick={del} className="px-2 py-1 rounded text-xs" style={{ color: '#F87171' }}>Excluir</button>}
             <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
           </div>
@@ -922,8 +930,8 @@ function RecordPanel({ row, columns, members, sources, userId, onClose, updateCe
         <div className="px-6 py-5">
           <div className="text-2xl mb-1">🧾</div>
           {titleCol && (
-            <input defaultValue={(row.data[titleCol.id] as string) || ''} placeholder="Sem título"
-              onBlur={e => updateCell(row.id, titleCol.id, e.target.value || null)}
+            <input defaultValue={(row.data[titleCol.id] as string) || ''} placeholder="Sem título" readOnly={somenteLeitura}
+              onBlur={e => { if (!somenteLeitura) updateCell(row.id, titleCol.id, e.target.value || null) }}
               className="w-full bg-transparent text-2xl font-bold outline-none mb-5" style={{ color: 'var(--notion-text)' }} />
           )}
 

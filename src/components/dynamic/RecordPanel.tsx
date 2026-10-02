@@ -8,6 +8,7 @@ import { TypeIcon } from './TypePicker'
 import { RecordTasks } from '@/components/board/RecordTasks'
 import { RecordComments } from './RecordComments'
 import { X, ChevronLeft } from 'lucide-react'
+import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 
 interface Member { id: string; full_name: string }
 
@@ -25,6 +26,7 @@ function TituloRegistro({ titulo, proprio, onSalvar }: {
   proprio: boolean
   onSalvar: (valor: string) => void
 }) {
+  const somenteLeitura = useSomenteLeitura()
   const [editando, setEditando] = useState(false)
   const [texto, setTexto] = useState(titulo)
 
@@ -51,6 +53,10 @@ function TituloRegistro({ titulo, proprio, onSalvar }: {
         className="w-full text-xl font-semibold leading-snug outline-none rounded px-1 -mx-1"
         style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)' }} />
     )
+  }
+
+  if (somenteLeitura) {
+    return <h2 className="text-xl font-semibold leading-snug break-words px-1 -mx-1" style={{ color: 'var(--notion-text)' }}>{titulo}</h2>
   }
 
   return (

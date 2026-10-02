@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { ehVisualizador } from '@/lib/abas'
 
 /**
  * Upload de arquivos para o bucket `assets`.
@@ -33,6 +34,11 @@ function safeFolder(folder: string) {
     .map(s => s.replace(/[^\w.-]+/g, '-').slice(0, 60)).filter(Boolean).join('/')
 }
 
+async function ehVisualizadorLogado(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>, userId: string) {
+  const { data } = await supabase.from('profiles').select('role').eq('id', userId).single()
+  return ehVisualizador(data?.role)
+}
+
 export async function POST(req: Request) {
   const supabase = await createServerSupabaseClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -44,6 +50,10 @@ export async function POST(req: Request) {
   if (file.size > MAX_BYTES) return NextResponse.json({ error: 'Arquivo maior que 25 MB' }, { status: 413 })
 
   const folder = safeFolder(String(form.get('folder') || 'arquivos'))
+  // visualizador só troca a própria foto (Settings → Meu perfil)
+  if (folder !== `${user.id}/avatar` && await ehVisualizadorLogado(supabase, user.id)) {
+    return NextResponse.json({ error: 'Seu acesso é somente de visualização.' }, { status: 403 })
+  }
   const ext = (file.name.split('.').pop() || 'bin').replace(/[^\w]+/g, '').slice(0, 10) || 'bin'
   const base = file.name.replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'arquivo'
   const path = `${folder}/${Date.now()}-${base}.${ext}`
@@ -62,6 +72,9 @@ export async function DELETE(req: Request) {
 
   const path = new URL(req.url).searchParams.get('path')
   if (!path) return NextResponse.json({ error: 'path ausente' }, { status: 400 })
+  if (!path.startsWith(`${user.id}/avatar/`) && await ehVisualizadorLogado(supabase, user.id)) {
+    return NextResponse.json({ error: 'Seu acesso é somente de visualização.' }, { status: 403 })
+  }
 
   const { error } = await adminClient().storage.from(BUCKET).remove([path])
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
