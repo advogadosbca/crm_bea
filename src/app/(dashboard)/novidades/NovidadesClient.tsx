@@ -231,7 +231,7 @@ export function NovidadesClient({ headerAssets, clientes, novas, tratadas, membr
       </div>
 
       {secao === 'casos' ? (
-        <CasosNovos pendentes={casosPendentes} decididos={casosDecididos} membros={membros} />
+        <CasosNovos pendentes={casosPendentes} decididos={casosDecididos} membros={membros} isAdmin={isAdmin} />
       ) : (<>
       {/* barra de controle */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">

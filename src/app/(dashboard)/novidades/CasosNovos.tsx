@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Check, X, Loader2, ChevronDown, ChevronUp, User, Phone, UserPlus,
-  AlertTriangle, Send, RotateCw, MessageSquareText,
+  AlertTriangle, Send, RotateCw, MessageSquareText, Trash2,
 } from 'lucide-react'
 import { Field, Textarea } from '@/components/ui/primitives'
 import type { CasoNovo } from '@/lib/casos-novos'
@@ -22,15 +22,49 @@ const fmtQuando = (s?: string | null) => (s ? new Date(s).toLocaleString('pt-BR'
  * relato e aprova ou recusa; a decisão avisa a cliente (webhook do n8n) e a
  * Sofia segue a conversa a partir do status gravado aqui.
  */
-export function CasosNovos({ pendentes, decididos, membros }: {
-  pendentes: CasoNovo[]; decididos: CasoNovo[]; membros: Membro[]
+export function CasosNovos({ pendentes, decididos, membros, isAdmin }: {
+  pendentes: CasoNovo[]; decididos: CasoNovo[]; membros: Membro[]; isAdmin: boolean
 }) {
+  const router = useRouter()
   const [aba, setAba] = useState<Aba>('pendentes')
   const [aberto, setAberto] = useState<string | null>(null)
   const visiveis = aba === 'pendentes' ? pendentes : decididos
 
+  // seleção em lote. A única ação é excluir, que é de admin — para os outros
+  // as caixas nem aparecem, em vez de selecionar e não ter o que fazer.
+  const [sel, setSel] = useState<string[]>([])
+  const [confirmando, setConfirmando] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const selecionados = useMemo(() => new Set(sel), [sel])
+  const todosVisiveis = visiveis.length > 0 && visiveis.every(c => selecionados.has(c.id))
+
+  function alternar(id: string) {
+    setConfirmando(false)
+    setSel(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]))
+  }
+  function alternarTodos() {
+    setConfirmando(false)
+    setSel(todosVisiveis ? [] : visiveis.map(c => c.id))
+  }
+
+  async function excluir() {
+    setExcluindo(true); setMsg(null)
+    const r = await fetch('/api/casos/lote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao: 'excluir', ids: sel }),
+    })
+    const d = await r.json()
+    setExcluindo(false); setConfirmando(false)
+    if (!r.ok) { setMsg(d.error || 'Falha ao excluir'); return }
+    setSel([])
+    setMsg(`${d.afetadas} ${d.afetadas === 1 ? 'caso excluído' : 'casos excluídos'}.`)
+    router.refresh()
+  }
+
   const Aba = ({ id, label, n }: { id: Aba; label: string; n: number }) => (
-    <button onClick={() => { setAba(id); setAberto(null) }}
+    // trocar de aba muda o conjunto na tela: a seleção antiga não vale mais
+    <button onClick={() => { setAba(id); setAberto(null); setSel([]); setConfirmando(false) }}
       className="flex items-center gap-1.5 px-3 py-2 text-sm -mb-px border-b-2 transition-colors"
       style={{ color: aba === id ? 'var(--notion-text)' : 'var(--notion-text-3)', borderColor: aba === id ? 'var(--notion-accent)' : 'transparent' }}>
       {label}
@@ -55,10 +89,62 @@ export function CasosNovos({ pendentes, decididos, membros }: {
         </div>
       )}
 
+      {msg && <p className="text-xs mb-2" style={{ color: 'var(--notion-text-2)' }}>{msg}</p>}
+
+      {/* linha de seleção: sempre visível para o "selecionar tudo" ter onde
+          morar mesmo com nada selecionado */}
+      {isAdmin && visiveis.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap mb-2 px-3 py-2 rounded-lg text-xs"
+          style={{
+            background: sel.length ? 'var(--notion-bg-2)' : 'transparent',
+            border: `1px solid ${sel.length ? 'var(--notion-border)' : 'transparent'}`,
+          }}>
+          <label className="flex items-center gap-2 cursor-pointer" style={{ color: 'var(--notion-text-2)' }}>
+            <input type="checkbox" checked={todosVisiveis} onChange={alternarTodos}
+              ref={el => { if (el) el.indeterminate = sel.length > 0 && !todosVisiveis }}
+              className="caixa-selecao" />
+            {sel.length === 0
+              ? `Selecionar tudo (${visiveis.length})`
+              : <b style={{ color: 'var(--notion-text)' }}>{sel.length} selecionado(s)</b>}
+          </label>
+
+          {sel.length > 0 && (
+            <>
+              <span className="flex-1" />
+              {confirmando ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ color: '#FBBF24' }}>
+                    Excluir {sel.length} {sel.length === 1 ? 'caso' : 'casos'}? Não dá para desfazer, e a cliente não é avisada.
+                  </span>
+                  <button onClick={excluir} disabled={excluindo}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md font-medium"
+                    style={{ background: '#B91C1C', color: '#fff', opacity: excluindo ? 0.7 : 1 }}>
+                    {excluindo ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Confirmar
+                  </button>
+                  <button onClick={() => setConfirmando(false)} disabled={excluindo}
+                    style={{ color: 'var(--notion-text-3)' }}>Cancelar</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setConfirmando(true)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md transition-colors"
+                    style={{ background: 'var(--notion-bg-2)', color: '#F87171', border: '1px solid rgba(248,113,113,0.4)' }}>
+                    <Trash2 className="w-3 h-3" /> Excluir
+                  </button>
+                  <button onClick={() => setSel([])}
+                    className="px-2 py-1" style={{ color: 'var(--notion-text-3)' }}>limpar</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
         {visiveis.map(c => (
           <CardCaso key={c.id} c={c} membros={membros}
-            aberto={aberto === c.id} onToggle={() => setAberto(a => (a === c.id ? null : c.id))} />
+            aberto={aberto === c.id} onToggle={() => setAberto(a => (a === c.id ? null : c.id))}
+            selecao={isAdmin ? { marcado: selecionados.has(c.id), algum: sel.length > 0, alternar: () => alternar(c.id) } : null} />
         ))}
       </div>
     </>
@@ -66,8 +152,10 @@ export function CasosNovos({ pendentes, decididos, membros }: {
 }
 
 /* ---------------- Card de um caso ---------------- */
-function CardCaso({ c, membros, aberto, onToggle }: {
+function CardCaso({ c, membros, aberto, onToggle, selecao }: {
   c: CasoNovo; membros: Membro[]; aberto: boolean; onToggle: () => void
+  /** null = quem vê não pode excluir, então não há caixa de seleção */
+  selecao: { marcado: boolean; algum: boolean; alternar: () => void } | null
 }) {
   const router = useRouter()
   const pendente = c.status === 'pendente'
@@ -86,9 +174,22 @@ function CardCaso({ c, membros, aberto, onToggle }: {
   }
 
   return (
-    <div className="rounded-lg border overflow-hidden"
+    <div className="group rounded-lg border overflow-hidden"
       style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
-      <button onClick={abrir} className="w-full text-left px-3 py-2.5 hover:bg-[var(--notion-bg-3)] transition-colors">
+      {/* realce na linha inteira, não só no botão, para a coluna da caixa de
+          seleção não ficar com outra cor (mesmo esquema do card de Processos) */}
+      <div className={`flex items-start transition-colors ${
+        selecao?.marcado ? 'bg-[var(--notion-bg-3)]' : 'hover:bg-[var(--notion-bg-3)]'}`}>
+      {/* fora do <button>: checkbox dentro de botão é HTML inválido e o clique
+          abriria o card junto. Aparece no hover e fica fixa havendo seleção. */}
+      {selecao && (
+        <label className="pl-3 pt-3 pr-0.5 cursor-pointer">
+          <input type="checkbox" checked={selecao.marcado} onChange={selecao.alternar}
+            aria-label="Selecionar caso"
+            className={`caixa-selecao transition-opacity ${selecao.marcado || selecao.algum ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} />
+        </label>
+      )}
+      <button onClick={abrir} className="flex-1 min-w-0 text-left px-3 py-2.5">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -120,6 +221,7 @@ function CardCaso({ c, membros, aberto, onToggle }: {
             : <ChevronDown className="w-4 h-4 flex-shrink-0 mt-1" style={{ color: 'var(--notion-text-3)' }} />}
         </div>
       </button>
+      </div>
 
       {aberto && (
         <div className="px-3 pb-3 border-t pt-3" style={{ borderColor: 'var(--notion-border)' }}>
@@ -141,12 +243,20 @@ function CardCaso({ c, membros, aberto, onToggle }: {
             )}
           </div>
 
-          {/* o relato inteiro, como a Sofia registrou — é o que se aprova */}
+          {/* o relato inteiro, como a Sofia registrou — é o que se aprova. A área
+              abre o bloco: é o que diz qual advogado deve ler, e no cabeçalho
+              ela é só uma etiqueta pequena */}
           <p className="text-[11px] mb-1 flex items-center gap-1" style={{ color: 'var(--notion-text-3)' }}>
             <MessageSquareText className="w-3 h-3" /> Relato colhido pela Sofia
           </p>
-          <p className="mb-3 text-sm leading-relaxed whitespace-pre-wrap px-3 py-2.5 rounded max-h-[28rem] overflow-y-auto"
-            style={{ background: 'var(--notion-bg)', color: 'var(--notion-text)' }}>{c.relato}</p>
+          <div className="mb-3 px-3 py-2.5 rounded max-h-[28rem] overflow-y-auto"
+            style={{ background: 'var(--notion-bg)' }}>
+            <p className="text-sm mb-2" style={{ color: 'var(--notion-text-2)' }}>
+              Área do caso:{' '}
+              <b style={{ color: c.area ? '#60A5FA' : '#FBBF24' }}>{c.area || 'não informada pela Sofia'}</b>
+            </p>
+            <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--notion-text)' }}>{c.relato}</p>
+          </div>
 
           {pendente
             ? <FormularioDecisao c={c} onPronto={() => router.refresh()} />
