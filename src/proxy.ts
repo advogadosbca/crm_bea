@@ -54,6 +54,8 @@ export async function proxy(request: NextRequest) {
   return supabaseResponse
 }
 
+// /email/ fica de fora: são os modelos de e-mail que o Supabase Auth baixa
+// sem login (GOTRUE_MAILER_TEMPLATES_*), e o logo que vai dentro deles
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: ['/((?!api|email/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }

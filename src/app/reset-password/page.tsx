@@ -1,20 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Check, X } from 'lucide-react'
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)',
-}
-const RULES: { label: string; test: (p: string) => boolean }[] = [
-  { label: 'Letra minúscula', test: p => /[a-z]/.test(p) },
-  { label: 'Letra maiúscula', test: p => /[A-Z]/.test(p) },
-  { label: 'Caractere especial', test: p => /[^A-Za-z0-9]/.test(p) },
-  { label: 'Número', test: p => /[0-9]/.test(p) },
-  { label: 'Mínimo 6 caracteres', test: p => p.length >= 6 },
-]
+import Link from 'next/link'
+import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Mail } from 'lucide-react'
+import { AuthShell, Aviso, BotaoOuro, CampoSenha, REGRAS_SENHA, RegrasSenha } from '@/components/auth/AuthShell'
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState('')
@@ -22,15 +13,26 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  // null = ainda conferindo o link
+  const [email, setEmail] = useState<string | null>(null)
+  const [semSessao, setSemSessao] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
-  const rules = RULES.map(r => ({ ...r, ok: r.test(password) }))
-  const valid = rules.every(r => r.ok) && password === confirm
+  // o link do e-mail abre a sessão de recuperação; sem ela não há o que salvar,
+  // e é melhor dizer isso agora do que depois de a pessoa digitar duas senhas
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) { setSemSessao(true); return }
+      setEmail(data.session.user?.email || '')
+    })
+  }, [supabase])
+
+  const valid = REGRAS_SENHA.every(r => r.test(password)) && password === confirm
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setError('')
-    if (!rules.every(r => r.ok)) { setError('A senha não atende aos requisitos.'); return }
+    if (!REGRAS_SENHA.every(r => r.test(password))) { setError('A senha não atende aos requisitos.'); return }
     if (password !== confirm) { setError('As senhas não coincidem.'); return }
     setLoading(true)
 
@@ -39,8 +41,7 @@ export default function ResetPasswordPage() {
     const token = sess.session?.access_token
     const mail = sess.session?.user?.email
     if (!token || !mail) {
-      setLoading(false)
-      setError('Sessão de recuperação ausente ou expirada. Solicite um novo link em "Esqueci a senha" e use o mais recente do e-mail.')
+      setLoading(false); setSemSessao(true)
       return
     }
 
@@ -69,52 +70,56 @@ export default function ResetPasswordPage() {
       return
     }
     setDone(true)
-    setTimeout(() => router.push('/'), 1200)
+    setTimeout(() => router.push('/'), 1500)
+  }
+
+  const voltar = (
+    <Link href="/login" className="inline-flex items-center gap-1 hover:opacity-80" style={{ color: 'var(--notion-text-2)' }}>
+      <ArrowLeft className="w-3 h-3" /> Voltar ao login
+    </Link>
+  )
+
+  if (semSessao) {
+    return (
+      <AuthShell titulo="Link expirado" subtitulo="Este link de redefinição já foi usado ou não vale mais." rodape={voltar}>
+        <p className="text-sm mb-5" style={{ color: 'var(--notion-text-2)' }}>
+          Por segurança, cada link funciona uma única vez. Peça um novo e use o e-mail mais recente.
+        </p>
+        <BotaoOuro type="button" onClick={() => router.push('/forgot-password')}>
+          <Mail className="w-4 h-4" /> Enviar um novo link
+        </BotaoOuro>
+      </AuthShell>
+    )
+  }
+
+  if (done) {
+    return (
+      <AuthShell>
+        <div className="text-center py-4">
+          <CheckCircle2 className="w-10 h-10 mx-auto mb-3" style={{ color: '#34D399' }} />
+          <p className="text-base font-semibold" style={{ color: 'var(--notion-text)' }}>Senha alterada</p>
+          <p className="text-sm mt-1 flex items-center justify-center gap-1.5" style={{ color: 'var(--notion-text-2)' }}>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Entrando no CRM…
+          </p>
+        </div>
+      </AuthShell>
+    )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--notion-bg)' }}>
-      <div className="w-full max-w-sm animate-fade-in">
-        <div className="text-center mb-8">
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--notion-text)' }}>Nova senha</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--notion-text-2)' }}>Defina sua nova senha de acesso</p>
-        </div>
-        <div className="rounded-xl p-6" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
-          {done ? (
-            <p className="text-sm text-center" style={{ color: '#34D399' }}>Senha alterada! Redirecionando...</p>
-          ) : (
-            <form onSubmit={submit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--notion-text-2)' }}>Nova senha</label>
-                <input type="password" required value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--notion-text-2)' }}>Confirmar senha</label>
-                <input type="password" required value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-              </div>
-              {password.length > 0 && (
-                <div className="space-y-1 px-1">
-                  {rules.map(r => (
-                    <div key={r.label} className="flex items-center gap-2 text-xs" style={{ color: r.ok ? '#34D399' : 'var(--notion-text-3)' }}>
-                      {r.ok ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} {r.label}
-                    </div>
-                  ))}
-                  {confirm.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs" style={{ color: password === confirm ? '#34D399' : 'var(--notion-text-3)' }}>
-                      {password === confirm ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />} Senhas coincidem
-                    </div>
-                  )}
-                </div>
-              )}
-              {error && <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>{error}</p>}
-              <button type="submit" disabled={loading || !valid} className="w-full py-2.5 rounded-lg text-sm font-medium"
-                style={{ background: (loading || !valid) ? 'var(--notion-bg-4)' : 'var(--notion-accent)', color: '#fff', opacity: (loading || !valid) ? 0.6 : 1 }}>
-                {loading ? 'Salvando...' : 'Alterar senha'}
-              </button>
-            </form>
-          )}
-        </div>
-      </div>
-    </div>
+    <AuthShell titulo="Criar nova senha" rodape={voltar}
+      subtitulo={email === null
+        ? 'Conferindo o link…'
+        : <>Para a conta <b style={{ color: 'var(--notion-text)' }}>{email}</b></>}>
+      <form onSubmit={submit} className="space-y-4">
+        <CampoSenha rotulo="Nova senha" value={password} onChange={setPassword} autoFocus />
+        <CampoSenha rotulo="Confirmar nova senha" value={confirm} onChange={setConfirm} />
+        <RegrasSenha senha={password} confirmacao={confirm} />
+        {error && <Aviso tipo="erro">{error}</Aviso>}
+        <BotaoOuro disabled={loading || !valid || email === null}>
+          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Salvando…</> : <><KeyRound className="w-4 h-4" /> Salvar nova senha</>}
+        </BotaoOuro>
+      </form>
+    </AuthShell>
   )
 }

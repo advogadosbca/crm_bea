@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Redefinição de senha</title>
+</head>
+<body style="margin:0;padding:0;background:#f3efe6;-webkit-text-size-adjust:100%;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Use o link para criar uma nova senha de acesso ao CRM.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3efe6;">
+  <tr><td align="center" style="padding:32px 16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+
+      <!-- cabeçalho -->
+      <tr><td align="center" style="background:#1c2738;border-radius:12px 12px 0 0;padding:32px 24px 26px;">
+        <img src="https://crm.bernardeseazevedo.com.br/email/logo-ba.png" width="76" height="61" alt="Bernardes &amp; Azevedo" style="display:block;margin:0 auto 14px;border:0;outline:none;">
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:15px;letter-spacing:4px;color:#ebd480;text-transform:uppercase;">Bernardes &amp; Azevedo</div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:10px;letter-spacing:5px;color:#8a96a8;text-transform:uppercase;margin-top:6px;">Advogados</div>
+      </td></tr>
+      <tr><td style="height:3px;line-height:3px;font-size:0;background:#c9a45c;">&nbsp;</td></tr>
+
+      <!-- corpo -->
+      <tr><td style="background:#ffffff;padding:36px 36px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#2b2f36;">
+        <h1 style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:normal;color:#1c2738;">Redefinição de senha</h1>
+        <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#3d434d;">Olá,</p>
+        <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#3d434d;">Recebemos um pedido para criar uma nova senha de acesso ao CRM do escritório para a conta <b style="color:#1c2738;">{{ .Email }}</b>.</p>
+        <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#3d434d;">Clique no botão abaixo para escolher a nova senha:</p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 26px;">
+          <tr><td align="center" bgcolor="#c9a45c" style="border-radius:8px;">
+            <a href="{{ .ConfirmationURL }}" target="_blank"
+              style="display:inline-block;padding:14px 30px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;color:#1c2738;text-decoration:none;border-radius:8px;">Criar nova senha</a>
+          </td></tr>
+        </table>
+
+        <p style="margin:0 0 6px;font-size:13px;line-height:1.5;color:#6b7280;">Por segurança, o link pode ser usado uma única vez. Se você não fez esse pedido, ignore este e-mail: sua senha atual continua valendo.</p>
+      </td></tr>
+
+      <!-- link alternativo -->
+      <tr><td style="background:#faf8f3;padding:18px 36px;border-top:1px solid #ece6d8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <p style="margin:0 0 6px;font-size:12px;color:#8a8f98;">Se o botão não funcionar, copie e cole este endereço no navegador:</p>
+        <p style="margin:0;font-size:12px;line-height:1.5;word-break:break-all;"><a href="{{ .ConfirmationURL }}" style="color:#9a7b3f;">{{ .ConfirmationURL }}</a></p>
+      </td></tr>
+
+      <!-- rodapé -->
+      <tr><td align="center" style="background:#1c2738;border-radius:0 0 12px 12px;padding:20px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <p style="margin:0;font-size:12px;color:#c3cad5;">Bernardes &amp; Azevedo Advogados</p>
+        <p style="margin:6px 0 0;font-size:11px;color:#8a96a8;">E-mail automático do CRM do escritório. Não responda esta mensagem.</p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

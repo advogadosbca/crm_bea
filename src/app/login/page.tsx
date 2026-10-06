@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Check, X } from 'lucide-react'
+import { AuthShell, BotaoOuro } from '@/components/auth/AuthShell'
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)',
@@ -73,27 +74,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--notion-bg)' }}>
-      <div className="fixed inset-0 pointer-events-none" style={{
-        backgroundImage: `radial-gradient(circle at 20% 50%, rgba(91,106,240,0.04) 0%, transparent 60%),
-          radial-gradient(circle at 80% 20%, rgba(91,106,240,0.03) 0%, transparent 50%)`,
-      }} />
-
-      <div className="w-full max-w-sm animate-fade-in">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-4"
-            style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--notion-text)' }}>Bernardes & Azevedo</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--notion-text-2)' }}>
-            {mode === 'login' ? 'Acesse seu workspace' : 'Crie sua conta'}
-          </p>
-        </div>
-
-        <div className="rounded-xl p-6" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+    <AuthShell>
           {/* Toggle */}
           <div className="flex items-center gap-1 p-1 rounded-lg mb-5" style={{ background: 'var(--notion-bg-3)' }}>
             {(['login', 'signup'] as const).map(m => (
@@ -145,14 +126,9 @@ export default function LoginPage() {
               <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(16,185,129,0.1)', color: '#34D399', border: '1px solid rgba(16,185,129,0.2)' }}>{success}</p>
             )}
 
-            <button type="submit" disabled={loading || (mode === 'signup' && !passwordValid)}
-              className="w-full py-2.5 rounded-lg text-sm font-medium transition-all"
-              style={{
-                background: (loading || (mode === 'signup' && !passwordValid)) ? 'var(--notion-bg-4)' : 'var(--notion-accent)',
-                color: '#fff', opacity: (loading || (mode === 'signup' && !passwordValid)) ? 0.6 : 1,
-              }}>
+            <BotaoOuro disabled={loading || (mode === 'signup' && !passwordValid)}>
               {loading ? (mode === 'login' ? 'Entrando...' : 'Criando...') : (mode === 'login' ? 'Entrar' : 'Criar conta')}
-            </button>
+            </BotaoOuro>
           </form>
 
           {mode === 'login' && (
@@ -160,8 +136,6 @@ export default function LoginPage() {
               <a href="/forgot-password" className="text-xs transition-colors hover:opacity-80" style={{ color: 'var(--notion-text-2)' }}>Esqueceu a senha?</a>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+    </AuthShell>
   )
 }

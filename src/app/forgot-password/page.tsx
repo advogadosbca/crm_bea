@@ -3,11 +3,8 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)',
-}
+import { ArrowLeft, Loader2, MailCheck, Send } from 'lucide-react'
+import { AuthShell, Aviso, BotaoOuro, Rotulo, estiloCampo } from '@/components/auth/AuthShell'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -22,44 +19,54 @@ export default function ForgotPasswordPage() {
       redirectTo: `${window.location.origin}/reset-password`,
     })
     setLoading(false)
-    if (error) { setError(error.message); return }
+    if (error) {
+      setError(/rate|too many|seconds/i.test(error.message)
+        ? 'Um link acabou de ser enviado. Aguarde um minuto antes de pedir outro.'
+        : error.message)
+      return
+    }
     setSent(true)
   }
 
+  const voltar = (
+    <Link href="/login" className="inline-flex items-center gap-1 hover:opacity-80" style={{ color: 'var(--notion-text-2)' }}>
+      <ArrowLeft className="w-3 h-3" /> Voltar ao login
+    </Link>
+  )
+
+  if (sent) {
+    return (
+      <AuthShell rodape={voltar}>
+        <div className="text-center py-2">
+          <MailCheck className="w-10 h-10 mx-auto mb-3" style={{ color: '#ebd480' }} />
+          <p className="text-base font-semibold" style={{ color: 'var(--notion-text)' }}>Confira seu e-mail</p>
+          <p className="text-sm mt-2" style={{ color: 'var(--notion-text-2)' }}>
+            Se houver uma conta com <b style={{ color: 'var(--notion-text)' }}>{email}</b>, enviamos um link para criar uma nova senha.
+          </p>
+          <p className="text-xs mt-3" style={{ color: 'var(--notion-text-3)' }}>
+            Não chegou? Veja a caixa de spam ou{' '}
+            <button type="button" onClick={() => setSent(false)} className="underline hover:opacity-80" style={{ color: 'var(--notion-text-2)' }}>
+              tente outra vez
+            </button>.
+          </p>
+        </div>
+      </AuthShell>
+    )
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--notion-bg)' }}>
-      <div className="w-full max-w-sm animate-fade-in">
-        <div className="text-center mb-8">
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--notion-text)' }}>Recuperar senha</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--notion-text-2)' }}>Enviaremos um link para redefinir sua senha</p>
+    <AuthShell titulo="Esqueceu a senha?" subtitulo="Informe seu e-mail de acesso e enviaremos um link para criar uma nova." rodape={voltar}>
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <Rotulo>E-mail</Rotulo>
+          <input type="email" required autoFocus autoComplete="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="seu@email.com" className="w-full px-3 py-2.5 rounded-lg text-sm" style={estiloCampo} />
         </div>
-        <div className="rounded-xl p-6" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
-          {sent ? (
-            <div className="text-center">
-              <p className="text-sm mb-4" style={{ color: '#34D399' }}>
-                Se houver uma conta com <b>{email}</b>, enviamos um e-mail com o link para redefinir a senha. Verifique sua caixa de entrada.
-              </p>
-              <Link href="/login" className="text-xs inline-flex items-center gap-1" style={{ color: 'var(--notion-text-2)' }}><ArrowLeft className="w-3 h-3" /> Voltar ao login</Link>
-            </div>
-          ) : (
-            <form onSubmit={submit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--notion-text-2)' }}>E-mail</label>
-                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com"
-                  className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-              </div>
-              {error && <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#F87171' }}>{error}</p>}
-              <button type="submit" disabled={loading} className="w-full py-2.5 rounded-lg text-sm font-medium"
-                style={{ background: loading ? 'var(--notion-bg-4)' : 'var(--notion-accent)', color: '#fff', opacity: loading ? 0.6 : 1 }}>
-                {loading ? 'Enviando...' : 'Enviar link de recuperação'}
-              </button>
-              <div className="text-center">
-                <Link href="/login" className="text-xs inline-flex items-center gap-1" style={{ color: 'var(--notion-text-2)' }}><ArrowLeft className="w-3 h-3" /> Voltar ao login</Link>
-              </div>
-            </form>
-          )}
-        </div>
-      </div>
-    </div>
+        {error && <Aviso tipo="erro">{error}</Aviso>}
+        <BotaoOuro disabled={loading}>
+          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Enviando…</> : <><Send className="w-4 h-4" /> Enviar link</>}
+        </BotaoOuro>
+      </form>
+    </AuthShell>
   )
 }
