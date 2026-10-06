@@ -33,11 +33,43 @@ export default function ResetPasswordPage() {
     if (!rules.every(r => r.ok)) { setError('A senha não atende aos requisitos.'); return }
     if (password !== confirm) { setError('As senhas não coincidem.'); return }
     setLoading(true)
-    const { error } = await supabase.auth.updateUser({ password })
+
+    // Pega o token da sessão de recuperação para autorizar a gravação no servidor.
+    const { data: sess } = await supabase.auth.getSession()
+    const token = sess.session?.access_token
+    const mail = sess.session?.user?.email
+    if (!token || !mail) {
+      setLoading(false)
+      setError('Sessão de recuperação ausente ou expirada. Solicite um novo link em "Esqueci a senha" e use o mais recente do e-mail.')
+      return
+    }
+
+    // 1) Grava a senha via service role (persistência garantida).
+    let out: { ok?: boolean; error?: string } = {}
+    try {
+      const res = await fetch('/api/definir-senha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: token, password }),
+      })
+      out = await res.json().catch(() => ({}))
+      if (!res.ok) { setLoading(false); setError(out.error || 'Não foi possível alterar a senha.'); return }
+    } catch {
+      setLoading(false)
+      setError('Falha de conexão ao alterar a senha. Tente novamente.')
+      return
+    }
+
+    // 2) Login limpo com a nova senha (prova que funciona + sessão consistente).
+    const { error: signErr } = await supabase.auth.signInWithPassword({ email: mail, password })
     setLoading(false)
-    if (error) { setError(error.message || 'Link inválido ou expirado. Solicite um novo.'); return }
+    if (signErr) {
+      setError('A senha foi alterada, mas o login automático falhou. Vá para o login e entre com a nova senha.')
+      setTimeout(() => router.push('/login'), 2500)
+      return
+    }
     setDone(true)
-    setTimeout(() => router.push('/'), 1500)
+    setTimeout(() => router.push('/'), 1200)
   }
 
   return (

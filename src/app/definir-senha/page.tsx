@@ -27,10 +27,12 @@ export default function DefinirSenhaPage() {
   const supabase = createClient()
 
   const [semSessao, setSemSessao] = useState(false)
+  const [email, setEmail] = useState('')
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) { setSemSessao(true); return }
       const u = data.session.user
+      setEmail(u?.email || '')
       setNome((u?.user_metadata?.full_name as string) || u?.email || '')
     })
   }, [supabase])
@@ -43,11 +45,44 @@ export default function DefinirSenhaPage() {
     if (!rules.every(r => r.ok)) { setError('A senha não atende aos requisitos.'); return }
     if (password !== confirm) { setError('As senhas não coincidem.'); return }
     setLoading(true)
-    const { error } = await supabase.auth.updateUser({ password })
+
+    // Pega o token da sessão de convite para autorizar a gravação no servidor.
+    const { data: sess } = await supabase.auth.getSession()
+    const token = sess.session?.access_token
+    const mail = sess.session?.user?.email || email
+    if (!token) {
+      setLoading(false)
+      setError('Sua sessão de convite expirou. Abra o link mais recente do e-mail ou peça um novo convite.')
+      return
+    }
+
+    // 1) Grava a senha via service role (garante persistência + confirma o e-mail).
+    let out: { ok?: boolean; error?: string } = {}
+    try {
+      const res = await fetch('/api/definir-senha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: token, password }),
+      })
+      out = await res.json().catch(() => ({}))
+      if (!res.ok) { setLoading(false); setError(out.error || 'Não foi possível salvar a senha.'); return }
+    } catch {
+      setLoading(false)
+      setError('Falha de conexão ao salvar a senha. Tente novamente.')
+      return
+    }
+
+    // 2) Faz um login limpo com a nova senha: prova que o re-login funciona e
+    //    cria uma sessão consistente (cookie sb-crm-auth).
+    const { error: signErr } = await supabase.auth.signInWithPassword({ email: mail, password })
     setLoading(false)
-    if (error) { setError(error.message || 'Convite inválido ou expirado. Peça um novo ao administrador.'); return }
+    if (signErr) {
+      setError('A senha foi salva, mas o login automático falhou: ' + (signErr.message || 'tente entrar manualmente.'))
+      setTimeout(() => router.push('/login'), 2500)
+      return
+    }
     setDone(true)
-    setTimeout(() => router.push('/'), 1500)
+    setTimeout(() => router.push('/'), 1200)
   }
 
   return (
