@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { initials, personColor } from '@/lib/people'
@@ -10,7 +10,7 @@ import {
 } from '@/types/dynamic'
 import {
   ViewConfig, FilterCond, ColorRule, QuickFilter, FILTER_OPS,
-  matchesFilters, matchesQuick, quickCount, applySort, rowColor, loadViewConfig, saveViewConfig,
+  matchesFilters, matchesQuick, quickCount, applySort, rowColor, viewConfigOf, saveViewConfig,
 } from '@/lib/view-config'
 import { DynamicTable } from './DynamicTable'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
@@ -181,7 +181,16 @@ function QuickFilterBar({ columns, quick, onChange, total, shown }: {
 }
 
 interface Member { id: string; full_name: string }
-export interface DBView { id: string; name: string; type: string; position: number }
+export interface DBView { id: string; name: string; type: string; position: number; config?: Partial<ViewConfig> | null }
+
+/** visualização que existe no banco — as de id fixo ('alerta-quadro') ou o fallback (id = tabela) não gravam */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Cards desenhados por coluna antes do "Mostrar mais". Com ~800 leads, desenhar
+ * todos de uma vez era boa parte da demora para abrir o quadro.
+ */
+const CARDS_POR_COLUNA = 50
 
 const VIEW_TYPES: { type: string; label: string; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; available: boolean }[] = [
   { type: 'table', label: 'Tabela', icon: Table2, available: true },
@@ -197,8 +206,10 @@ const VIEW_TYPES: { type: string; label: string; icon: React.ComponentType<{ cla
 ]
 const viewMeta = (t: string) => VIEW_TYPES.find(v => v.type === t) || VIEW_TYPES[0]
 
-export function DynamicBoard({ tableId, initialColumns, initialRows, sources, members, userId, views: initialViews = [], groupColId, openRowId }: {
+export function DynamicBoard({ tableId, initialColumns, initialRows, sources, members, userId, views: initialViews = [], groupColId, openRowId, escopo = null }: {
   tableId: string; initialColumns: DBColumn[]; initialRows: DBRow[]; sources: DataSource[]; members: Member[]; userId: string; views?: DBView[]; groupColId?: string
+  /** dono das visualizações criadas aqui (db_views.escopo): cada sub-aba da Geral tem as suas; null = da fonte */
+  escopo?: string | null
   /** id de linha vindo de ?row= na URL: abre o painel lateral desse registro ao carregar */
   openRowId?: string
 }) {
@@ -224,19 +235,30 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   const [quick, setQuick] = useState<QuickFilter>({})
   // gaveta: false = operação do dia (registros ativos), true = só os arquivados
   const [verArquivados, setVerArquivados] = useState(false)
+  // quantos cards cada coluna do quadro desenha (o resto vem em "Mostrar mais")
+  const [limiteCol, setLimiteCol] = useState<Record<string, number>>({})
   const [cfgOpen, setCfgOpen] = useState(false)
   const [cfgTab, setCfgTab] = useState<'menu' | 'layout' | 'visibility' | 'filter' | 'sort' | 'group' | 'color'>('menu')
   const [copied, setCopied] = useState(false)
-  // configuração da visualização (Filtrar/Ordenar/Agrupar/Cor) — carregada/persistida por view em localStorage.
+  // configuração da visualização (Filtrar/Ordenar/Agrupar/Cor) — vem de db_views.config e grava lá,
+  // para o quadro montado por uma pessoa valer para todas (ver lib/view-config).
   // recarrega ao trocar de view ajustando o estado durante o render (padrão sancionado do React, sem useEffect).
-  const [vcfg, setVcfg] = useState<ViewConfig>(() => loadViewConfig(activeId || ''))
+  const cfgDaView = (id?: string) => viewConfigOf(id || '', views.find(v => v.id === id)?.config)
+  const [vcfg, setVcfg] = useState<ViewConfig>(() => cfgDaView(activeId))
   const [vcfgFor, setVcfgFor] = useState(activeId)
-  if (activeId !== vcfgFor) { setVcfgFor(activeId); setVcfg(loadViewConfig(activeId || '')) }
-  const patchVcfg = (patch: Partial<ViewConfig>) => setVcfg(prev => {
-    const next = { ...prev, ...patch }
-    saveViewConfig(activeId || '', next)
-    return next
-  })
+  if (activeId !== vcfgFor) { setVcfgFor(activeId); setVcfg(cfgDaView(activeId)) }
+  // digitar o valor de um filtro gera uma mudança por tecla: o banco só recebe a última
+  const cfgTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const patchVcfg = (patch: Partial<ViewConfig>) => {
+    const id = activeId || ''
+    const next = { ...vcfg, ...patch }
+    setVcfg(next)
+    saveViewConfig(id, next)
+    if (!UUID.test(id) || id === tableId || somenteLeitura) return
+    setViews(vs => vs.map(v => v.id === id ? { ...v, config: next } : v))
+    if (cfgTimer.current) clearTimeout(cfgTimer.current)
+    cfgTimer.current = setTimeout(() => { void supabase.from('db_views').update({ config: next }).eq('id', id) }, 600)
+  }
 
   useEffect(() => { setColumns(initialColumns) }, [initialColumns])
   useEffect(() => { setRows(initialRows) }, [initialRows])
@@ -266,7 +288,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   async function addView(type: string) {
     setAddingView(false)
     const meta = viewMeta(type)
-    const { data } = await supabase.from('db_views').insert({ table_id: tableId, name: meta.label, type, position: views.length }).select('*').single()
+    const { data } = await supabase.from('db_views').insert({ table_id: tableId, name: meta.label, type, position: views.length, escopo }).select('*').single()
     if (data) { setViews(vs => [...vs, data as DBView]); setActiveId(data.id) }
   }
   async function renameView(id: string, name: string) {
@@ -279,7 +301,10 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
   }
   async function duplicateView(v: DBView) {
     setViewMenu(null)
-    const { data } = await supabase.from('db_views').insert({ table_id: tableId, name: `${v.name} (cópia)`, type: v.type, position: views.length }).select('*').single()
+    const { data } = await supabase.from('db_views').insert({
+      table_id: tableId, name: `${v.name} (cópia)`, type: v.type, position: views.length, escopo,
+      config: v.id === activeId ? vcfg : (v.config ?? null),
+    }).select('*').single()
     if (data) { setViews(vs => [...vs, data as DBView]); setActiveId(data.id) }
   }
   async function deleteView(id: string) {
@@ -725,7 +750,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                   ) : (
                     <>
                       <p className="text-[10px] uppercase tracking-wider px-2 pt-1 pb-1.5" style={{ color: 'var(--notion-text-3)' }}>Ver configurações</p>
-                      {/* layout e visibilidade gravam no banco; filtrar/ordenar/agrupar/cor ficam só no navegador */}
+                      {/* tudo aqui grava no banco e vale para a equipe; o filtro rápido da barra é só desta tela */}
                       {!somenteLeitura && <SettingsRow icon={viewMeta(vt).icon} label="Layout" value={viewMeta(vt).label} arrow onClick={() => setCfgTab('layout')} />}
                       {!somenteLeitura && <SettingsRow icon={Eye} label="Visibilidade da propriedade" value={String(visibleCount)} arrow onClick={() => setCfgTab('visibility')} />}
                       <SettingsRow icon={Filter} label="Filtrar" value={vcfg.filters.length ? String(vcfg.filters.length) : undefined} arrow onClick={() => setCfgTab('filter')} />
@@ -797,6 +822,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
         <ScrollX className="flex gap-3 overflow-x-auto pb-3 items-start">
           {(groupCol.config.options || []).map(o => {
             const cardsHere = shown.filter(r => { const v = r.data[groupCol.id]; return v === o.id || v === o.label })
+            const limite = limiteCol[o.id] || CARDS_POR_COLUNA
             return (
               <div key={o.id}
                 onDragOver={e => { e.preventDefault(); setOverCol(o.id) }}
@@ -811,7 +837,7 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                 {/* só a pilha de cards rola; cabeçalho e "Nova página" ficam parados */}
                 <div className="space-y-2 overflow-y-auto overscroll-contain pr-0.5"
                   style={{ maxHeight: ALTURA_MAX_COLUNA }}>
-                  {cardsHere.map(r => (
+                  {cardsHere.slice(0, limite).map(r => (
                     <div key={r.id} draggable={!somenteLeitura}
                       onDragStart={() => setDragId(r.id)} onDragEnd={() => { setDragId(null); setOverCol(null) }}
                       onClick={() => setOpenRow(r.id)}
@@ -836,6 +862,12 @@ export function DynamicBoard({ tableId, initialColumns, initialRows, sources, me
                       )}
                     </div>
                   ))}
+                  {cardsHere.length > limite && (
+                    <button onClick={() => setLimiteCol(l => ({ ...l, [o.id]: limite + CARDS_POR_COLUNA }))}
+                      className="w-full px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-2)' }}>
+                      Mostrar mais ({cardsHere.length - limite})
+                    </button>
+                  )}
                 </div>
                 {!somenteLeitura && (
                   <button onClick={() => addCard(o.id)} className="w-full flex items-center gap-1.5 px-2 py-1.5 mt-2 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)] flex-shrink-0" style={{ color: 'var(--notion-text-3)' }}>

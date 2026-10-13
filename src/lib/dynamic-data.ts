@@ -1,6 +1,7 @@
 import { getAuthProfile } from '@/lib/auth'
 import { DBColumn, DBRow, DataSource, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 import { fetchAllRows } from '@/lib/db-rows'
+import type { DBView } from '@/components/dynamic/DynamicBoard'
 
 /**
  * Carrega a tabela dinâmica de um módulo (db_tables.module_key) + colunas/linhas + fontes do workspace.
@@ -49,9 +50,9 @@ export async function getModuleTable(moduleKey: string) {
 
   const { data: members } = await supabase.from('profiles').select('id, full_name').eq('workspace_id', ws)
 
-  let views: { id: string; name: string; type: string; position: number }[] = []
+  let views: DBView[] = []
   if (tableId) {
-    const { data: v } = await supabase.from('db_views').select('id, name, type, position').eq('table_id', tableId).order('position')
+    const { data: v } = await supabase.from('db_views').select('id, name, type, position, config').eq('table_id', tableId).is('escopo', null).order('position')
     views = v || []
   }
 
@@ -96,9 +97,9 @@ export async function getTableById(tableId: string) {
 
   const { data: members } = await supabase.from('profiles').select('id, full_name').eq('workspace_id', ws)
 
-  let views: { id: string; name: string; type: string; position: number }[] = []
+  let views: DBView[] = []
   if (exists) {
-    const { data: v } = await supabase.from('db_views').select('id, name, type, position').eq('table_id', tableId).order('position')
+    const { data: v } = await supabase.from('db_views').select('id, name, type, position, config').eq('table_id', tableId).is('escopo', null).order('position')
     views = v || []
   }
 

@@ -1,7 +1,8 @@
 import { DBColumn, DBRow, displayValue } from '@/types/dynamic'
 
 // Configuração de uma visualização (filtros, ordenação, agrupamento, cor condicional).
-// Persistida em localStorage por id de view — o schema db_views não tem coluna de config.
+// Gravada em db_views.config (sql/013), que vale para todo mundo. O localStorage
+// ficou como cópia local e como leitura de quem configurou antes da coluna existir.
 
 export type FilterOp =
   | 'contains' | 'not_contains' | 'is' | 'is_not' | 'gt' | 'lt' | 'empty' | 'not_empty'
@@ -149,4 +150,10 @@ export function loadViewConfig(viewId: string): ViewConfig {
 export function saveViewConfig(viewId: string, cfg: ViewConfig) {
   if (typeof window === 'undefined' || !viewId) return
   try { window.localStorage.setItem(key(viewId), JSON.stringify(cfg)) } catch { /* noop */ }
+}
+
+/** config da visualização: a do banco quando existe, senão a que ficou neste navegador */
+export function viewConfigOf(viewId: string, dbConfig?: Partial<ViewConfig> | null): ViewConfig {
+  if (dbConfig && typeof dbConfig === 'object') return { ...EMPTY_VIEW_CONFIG, ...dbConfig }
+  return loadViewConfig(viewId)
 }

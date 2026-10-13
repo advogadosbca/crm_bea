@@ -1,5 +1,6 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
-import { GeralClient } from './GeralClient'
+import { GeralClient, type LeadsBoard } from './GeralClient'
+import type { DBView } from '@/components/dynamic/DynamicBoard'
 import { DBColumn, DBRow, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 import { fetchAllRows } from '@/lib/db-rows'
 
@@ -70,12 +71,19 @@ export default async function GeralPage({ searchParams }: {
     processosId: (dynTables || []).find(t => t.module_key === 'processos')?.id || '',
   }
 
-  // funil dinâmico: tabela Leads (quadro por Status pré-atendimento) com relação Contato
+  // Funil / Negociação / Ações: a mesma fonte Leads, mas cada sub-aba com as
+  // próprias visualizações (db_views.escopo, ver sql/013) — antes as três
+  // dividiam a lista e um quadro criado numa aparecia nas outras
   const leadsSource = dynSources.find(s => s.id === shortcuts.leadsId)
-  let leadsBoard: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null = null
+  let leadsBoard: LeadsBoard | null = null
   if (shortcuts.leadsId && leadsSource) {
-    const { data: leadsViews } = await supabase.from('db_views').select('id, name, type, position').eq('table_id', shortcuts.leadsId).order('position')
-    leadsBoard = { tableId: shortcuts.leadsId, columns: leadsSource.columns, rows: leadsSource.rows, views: leadsViews || [] }
+    const { data: leadsViews } = await supabase.from('db_views').select('id, name, type, position, config, escopo')
+      .eq('table_id', shortcuts.leadsId).like('escopo', 'geral-%').order('position')
+    const doEscopo = (e: string) => (leadsViews || []).filter(v => v.escopo === e).map(({ escopo: _, ...v }) => v as DBView)
+    leadsBoard = {
+      tableId: shortcuts.leadsId, columns: leadsSource.columns, rows: leadsSource.rows,
+      views: { funil: doEscopo('geral-funil'), negociacao: doEscopo('geral-negociacao'), acoes: doEscopo('geral-acoes') },
+    }
   }
 
   const cols = kanbanCols || []

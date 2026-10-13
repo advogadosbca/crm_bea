@@ -27,6 +27,9 @@ import {
 interface Member { id: string; full_name: string }
 type Calc = 'none' | 'count' | 'filled' | 'sum' | 'avg' | 'checked'
 
+/** linhas montadas por vez — as próximas entram conforme a rolagem se aproxima do fim */
+const LOTE_LINHAS = 150
+
 // dono atual do Ctrl+Z: quando há várias tabelas na tela, só a última em que
 // o usuário mexeu responde ao desfazer (evita desfazer em todas de uma vez).
 let undoOwner: string | null = null
@@ -156,6 +159,30 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
     }
     return Array.from(map.values())
   }, [displayRows, groupCol])
+
+  // Linhas desenhadas: começa num lote e cresce quando a rolagem chega perto do
+  // fim. Com ~800 leads × 16 colunas, montar todas as células de uma vez travava
+  // a tela por volta de 2s ao abrir. Contagem e cálculos do rodapé seguem usando
+  // displayRows inteiro.
+  const [desenhadas, setDesenhadas] = useState(LOTE_LINHAS)
+  const fimRef = useRef<HTMLTableRowElement>(null)
+  const faltaDesenhar = displayRows.length > desenhadas
+  useEffect(() => {
+    const el = fimRef.current
+    if (!el || !faltaDesenhar) return
+    const obs = new IntersectionObserver(e => {
+      if (e[0]?.isIntersecting) setDesenhadas(d => d + LOTE_LINHAS)
+    }, { rootMargin: '800px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [faltaDesenhar, desenhadas])
+  const gruposVisiveis = useMemo(() => {
+    if (!groups) return null
+    let resta = desenhadas
+    return groups
+      .map(g => { const rows = g.rows.slice(0, Math.max(resta, 0)); resta -= g.rows.length; return { ...g, rows, total: g.rows.length } })
+      .filter(g => g.rows.length > 0)
+  }, [groups, desenhadas])
 
   // ---------- desfazer (Ctrl+Z) para ações estruturais ----------
   const uid = useRef(Math.random().toString(36).slice(2))
@@ -543,21 +570,28 @@ export function DynamicTable({ tableId, initialColumns, initialRows, sources: in
             </tr>
           </thead>
           <tbody>
-            {groups
-              ? groups.map(gr => (
+            {gruposVisiveis
+              ? gruposVisiveis.map(gr => (
                 <Fragment key={gr.label}>
                   <tr>
                     <td colSpan={visible.length + 1} className="border-b" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'var(--notion-bg-2)' }}>
                       <div className="flex items-center gap-2 px-2.5 py-1.5">
                         <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: gr.color ? `${gr.color}22` : 'var(--notion-bg-4)', color: gr.color || 'var(--notion-text-2)' }}>{gr.label}</span>
-                        <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>{gr.rows.length}</span>
+                        <span className="text-xs" style={{ color: 'var(--notion-text-3)' }}>{gr.total}</span>
                       </div>
                     </td>
                   </tr>
                   {gr.rows.map(renderRow)}
                 </Fragment>
               ))
-              : displayRows.map(renderRow)}
+              : displayRows.slice(0, desenhadas).map(renderRow)}
+            {faltaDesenhar && (
+              <tr ref={fimRef}>
+                <td colSpan={visible.length + 1} className="px-2.5 py-2 text-xs" style={{ color: 'var(--notion-text-3)' }}>
+                  Carregando mais {displayRows.length - desenhadas} linha(s)…
+                </td>
+              </tr>
+            )}
             {/* na gaveta não se cria registro: ele nasceria ativo e sumiria da tela */}
             {!verArquivados && !somenteLeitura && (
               <tr>

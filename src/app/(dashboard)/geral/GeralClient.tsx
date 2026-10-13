@@ -16,13 +16,24 @@ import { KanbanBoard, KanbanColumn } from '@/components/ui/KanbanBoard'
 import { DatePicker } from '@/components/ui/DatePicker'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
-import { DynamicBoard } from '@/components/dynamic/DynamicBoard'
+import { DynamicBoard, DBView } from '@/components/dynamic/DynamicBoard'
 import { DBColumn, DBRow, DataSource } from '@/types/dynamic'
 
 type DynTable = { tableId: string; columns: DBColumn[]; rows: DBRow[] } | null
 
+/** fonte Leads com as visualizações de cada sub-aba (db_views.escopo) */
+export type LeadsBoard = {
+  tableId: string; columns: DBColumn[]; rows: DBRow[]
+  views: { funil: DBView[]; negociacao: DBView[]; acoes: DBView[] }
+}
+
 /** id da coluna pelo nome — o quadro precisa saber por qual status agrupar */
 const colId = (t: DynTable, nome: string) => t?.columns.find(c => c.name === nome)?.id
+
+// fora do componente: um array novo a cada render faria o DynamicBoard
+// reiniciar as visualizações (ele reage à troca da prop `views`)
+const VIEWS_ALERTA: DBView[] = [{ id: 'alerta-quadro', name: 'Alerta', type: 'board', position: 0 }]
+const VIEWS_PEND: DBView[] = [{ id: 'pend-quadro', name: 'Pendências', type: 'board', position: 0 }]
 
 type ContactRow = Contact & { responsavel?: { full_name: string; avatar_url?: string } | null }
 
@@ -37,7 +48,7 @@ interface Props {
   board: { lists: BList[]; cards: BCard[]; labels: BLabel[] }
   geralTables: { alerta: DynTable; prazos: DynTable; pendencias: DynTable; sources: DataSource[] }
   shortcuts: { contatosId: string; leadsId: string; processosId: string }
-  leadsBoard?: { tableId: string; columns: DBColumn[]; rows: DBRow[]; views: { id: string; name: string; type: string; position: number }[] } | null
+  leadsBoard?: LeadsBoard | null
   /** ?card=<id>: cartão a abrir direto no Quadro de Tarefas (link vindo do painel do cliente) */
   openCardId?: string
 }
@@ -56,7 +67,6 @@ function Tag({ label, color }: { label: string; color: string }) {
 
 export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard, openCardId }: Props) {
   const canEditBoard = headerAssets.canEdit
-  const leadColId = (name: string) => leadsBoard?.columns.find(c => c.name === name)?.id
 
   async function novoNaFonte(tableId: string) {
     if (!tableId) return
@@ -67,6 +77,14 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
   // o Quadro de Tarefas só existe no modo tabela; se veio link de tarefa, volta pra ele
   const [mode, setMode] = useState<Mode>('tabela')
   useEffect(() => { if (openCardId) setMode('tabela') }, [openCardId])
+  // Sub-aba aberta uma vez fica montada (só escondida). Desmontar e remontar a
+  // cada troca levava ~2s (centenas de leads redesenhados) e perdia o estado:
+  // a visualização voltava ao que o servidor mandou quando a página abriu.
+  const [visitadas, setVisitadas] = useState<Set<Mode>>(() => new Set([mode]))
+  function trocarModo(m: Mode) {
+    setMode(m)
+    setVisitadas(v => v.has(m) ? v : new Set(v).add(m))
+  }
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -153,6 +171,121 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
     { key: 'acoes', label: 'Ações', icon: Gavel },
   ]
 
+  // Os painéis são memorizados: trocar de sub-aba muda só o `hidden` do
+  // contêiner, sem redesenhar os quadros que já estão montados.
+  const tabelasEl = useMemo(() => (
+    <div className="space-y-8">
+      {/* Atalhos conectados à Fonte de dados */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="rounded-xl p-5 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(91,106,240,0.15)' }}>
+              <Users2 className="w-4 h-4" style={{ color: '#818CF8' }} />
+            </div>
+            <h3 className="text-sm font-semibold italic" style={{ color: 'var(--notion-text)' }}>Cadastrar Contato</h3>
+          </div>
+          <button onClick={() => novoNaFonte(shortcuts.contatosId)}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors hover:bg-[var(--notion-bg-4)]"
+            style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
+            <Plus className="w-4 h-4" /> Nova página
+          </button>
+          <p className="text-xs mt-2" style={{ color: 'var(--notion-text-3)' }}>Vai para a fonte de dados <b>Contatos</b>.</p>
+        </div>
+
+        <div className="rounded-xl p-5 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Table2 className="w-4 h-4" style={{ color: '#22D3EE' }} />
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>Leads</h3>
+          </div>
+          <div className="space-y-1.5">
+            <Link href={`/tabelas?t=${shortcuts.contatosId}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text)' }}>
+              <Users2 className="w-3.5 h-3.5" style={{ color: '#818CF8' }} /> Lista de Contatos
+            </Link>
+            <Link href={`/tabelas?t=${shortcuts.leadsId}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text)' }}>
+              <Database className="w-3.5 h-3.5" style={{ color: '#22D3EE' }} /> Lista Leads
+            </Link>
+            <button onClick={() => novoNaFonte(shortcuts.leadsId)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
+              <Plus className="w-3.5 h-3.5" /> Novo lead
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Os dois blocos são quadros, agrupados pela coluna de status da
+          própria fonte. Cada coluna tem teto de altura e rola por dentro
+          (ALTURA_MAX_COLUNA), então nenhum quadro estica a página. */}
+      <section>
+        <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
+          <AlertTriangle className="w-4 h-4" style={{ color: '#F59E0B' }} /> Alerta — Alta Prioridade
+        </h2>
+        {geralTables.alerta ? (
+          <DynamicBoard key={geralTables.alerta.tableId + '-alerta'} tableId={geralTables.alerta.tableId}
+            initialColumns={geralTables.alerta.columns} initialRows={geralTables.alerta.rows}
+            sources={geralTables.sources} members={members} userId={userId}
+            groupColId={colId(geralTables.alerta, 'Status Geral')}
+            views={VIEWS_ALERTA} />
+        ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
+      </section>
+
+      {/* Ocupou o lugar de "Prazos Vencidos", que estava sem nenhuma linha
+          desde sempre. A fonte geral-prazos continua existindo e segue
+          acessível em /tabelas — só saiu daqui. São as MESMAS linhas de
+          /pendencias: o quadro aqui e o de lá editam o mesmo registro. */}
+      <section>
+        <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
+          <Clock className="w-4 h-4" style={{ color: '#EF4444' }} /> Pendências Processuais
+        </h2>
+        {geralTables.pendencias ? (
+          <DynamicBoard key={geralTables.pendencias.tableId + '-pend'} tableId={geralTables.pendencias.tableId}
+            initialColumns={geralTables.pendencias.columns} initialRows={geralTables.pendencias.rows}
+            sources={geralTables.sources} members={members} userId={userId}
+            groupColId={colId(geralTables.pendencias, 'Status')}
+            views={VIEWS_PEND} />
+        ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
+      </section>
+
+      {/* Quadro estilo Trello */}
+      <section>
+        <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
+          <Gavel className="w-4 h-4" style={{ color: '#22D3EE' }} /> Quadro de Tarefas
+        </h2>
+        {/* as fontes ja vieram prontas do servidor nesta pagina; o cartao le os
+            processos do cliente daqui em vez de buscar tudo de novo ao abrir */}
+        <ProjectBoard lists={board.lists} cards={board.cards} labels={board.labels}
+          members={members} workspaceId={workspaceId} userId={userId} openCardId={openCardId}
+          sources={geralTables.sources} processosTableId={shortcuts.processosId} />
+      </section>
+    </div>
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [geralTables, board, members, workspaceId, userId, openCardId, shortcuts])
+
+  const kanbanEls = useMemo(() => {
+    const quadro = (m: 'funil' | 'negociacao' | 'acoes') => leadsBoard && (
+      <DynamicBoard key={`${leadsBoard.tableId}-${m}`} tableId={leadsBoard.tableId}
+        initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
+        sources={geralTables.sources} members={members} userId={userId}
+        views={leadsBoard.views[m]} escopo={`geral-${m}`} />
+    )
+    return {
+      funil: quadro('funil') || (
+        <KanbanBoard contacts={searched} field="funil_status" boardKey="funil"
+          initialColumns={kanbanColumns.funil} canEdit={canEditBoard} showTags={['status_geral']}
+          onNewPage={label => openNewInColumn(label, 'funil_status')} onEditCard={openEditCard} />
+      ),
+      negociacao: quadro('negociacao') || (
+        <KanbanBoard contacts={searched} field="status_geral" boardKey="negociacao"
+          initialColumns={kanbanColumns.negociacao} canEdit={canEditBoard} showTags={['renda', 'analise']}
+          onNewPage={label => openNewInColumn(label, 'status_geral')} onEditCard={openEditCard} />
+      ),
+      acoes: quadro('acoes') || (
+        <KanbanBoard contacts={searched} field="status_processual" boardKey="acoes"
+          initialColumns={kanbanColumns.acoes} canEdit={canEditBoard} showTags={['status_geral', 'observacao']}
+          onNewPage={label => openNewInColumn(label, 'status_processual')} onEditCard={openEditCard} />
+      ),
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadsBoard, geralTables.sources, members, userId, searched, kanbanColumns, canEditBoard])
+
   return (
     <div className="min-h-screen">
       <EditableHeader title="Geral" icon={Settings} color="#818CF8"
@@ -167,7 +300,7 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
             {modes.map(m => {
               const Icon = m.icon
               return (
-                <button key={m.key} onClick={() => setMode(m.key)}
+                <button key={m.key} onClick={() => trocarModo(m.key)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
                   style={{ background: mode === m.key ? 'var(--notion-bg-3)' : 'transparent', color: mode === m.key ? 'var(--notion-text)' : 'var(--notion-text-2)' }}>
                   <Icon className="w-3.5 h-3.5" /> {m.label}
@@ -209,128 +342,13 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
           </div>
         </div>
 
-        {/* TABELAS (dinâmicas) */}
-        {mode === 'tabela' && (
-          <div className="space-y-8">
-            {/* Atalhos conectados à Fonte de dados */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-xl p-5 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(91,106,240,0.15)' }}>
-                    <Users2 className="w-4 h-4" style={{ color: '#818CF8' }} />
-                  </div>
-                  <h3 className="text-sm font-semibold italic" style={{ color: 'var(--notion-text)' }}>Cadastrar Contato</h3>
-                </div>
-                <button onClick={() => novoNaFonte(shortcuts.contatosId)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors hover:bg-[var(--notion-bg-4)]"
-                  style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>
-                  <Plus className="w-4 h-4" /> Nova página
-                </button>
-                <p className="text-xs mt-2" style={{ color: 'var(--notion-text-3)' }}>Vai para a fonte de dados <b>Contatos</b>.</p>
-              </div>
-
-              <div className="rounded-xl p-5 border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Table2 className="w-4 h-4" style={{ color: '#22D3EE' }} />
-                  <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>Leads</h3>
-                </div>
-                <div className="space-y-1.5">
-                  <Link href={`/tabelas?t=${shortcuts.contatosId}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text)' }}>
-                    <Users2 className="w-3.5 h-3.5" style={{ color: '#818CF8' }} /> Lista de Contatos
-                  </Link>
-                  <Link href={`/tabelas?t=${shortcuts.leadsId}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text)' }}>
-                    <Database className="w-3.5 h-3.5" style={{ color: '#22D3EE' }} /> Lista Leads
-                  </Link>
-                  <button onClick={() => novoNaFonte(shortcuts.leadsId)} className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors hover:bg-[var(--notion-bg-3)]" style={{ color: 'var(--notion-text-3)' }}>
-                    <Plus className="w-3.5 h-3.5" /> Novo lead
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Os dois blocos são quadros, agrupados pela coluna de status da
-                própria fonte. Cada coluna tem teto de altura e rola por dentro
-                (ALTURA_MAX_COLUNA), então nenhum quadro estica a página. */}
-            <section>
-              <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
-                <AlertTriangle className="w-4 h-4" style={{ color: '#F59E0B' }} /> Alerta — Alta Prioridade
-              </h2>
-              {geralTables.alerta ? (
-                <DynamicBoard key={geralTables.alerta.tableId + '-alerta'} tableId={geralTables.alerta.tableId}
-                  initialColumns={geralTables.alerta.columns} initialRows={geralTables.alerta.rows}
-                  sources={geralTables.sources} members={members} userId={userId}
-                  groupColId={colId(geralTables.alerta, 'Status Geral')}
-                  views={[{ id: 'alerta-quadro', name: 'Alerta', type: 'board', position: 0 }]} />
-              ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
-            </section>
-
-            {/* Ocupou o lugar de "Prazos Vencidos", que estava sem nenhuma linha
-                desde sempre. A fonte geral-prazos continua existindo e segue
-                acessível em /tabelas — só saiu daqui. São as MESMAS linhas de
-                /pendencias: o quadro aqui e o de lá editam o mesmo registro. */}
-            <section>
-              <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
-                <Clock className="w-4 h-4" style={{ color: '#EF4444' }} /> Pendências Processuais
-              </h2>
-              {geralTables.pendencias ? (
-                <DynamicBoard key={geralTables.pendencias.tableId + '-pend'} tableId={geralTables.pendencias.tableId}
-                  initialColumns={geralTables.pendencias.columns} initialRows={geralTables.pendencias.rows}
-                  sources={geralTables.sources} members={members} userId={userId}
-                  groupColId={colId(geralTables.pendencias, 'Status')}
-                  views={[{ id: 'pend-quadro', name: 'Pendências', type: 'board', position: 0 }]} />
-              ) : <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Tabela não provisionada.</p>}
-            </section>
-
-            {/* Quadro estilo Trello */}
-            <section>
-              <h2 className="flex items-center gap-2 text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
-                <Gavel className="w-4 h-4" style={{ color: '#22D3EE' }} /> Quadro de Tarefas
-              </h2>
-              {/* as fontes ja vieram prontas do servidor nesta pagina; o cartao le os
-                  processos do cliente daqui em vez de buscar tudo de novo ao abrir */}
-              <ProjectBoard lists={board.lists} cards={board.cards} labels={board.labels}
-                members={members} workspaceId={workspaceId} userId={userId} openCardId={openCardId}
-                sources={geralTables.sources} processosTableId={shortcuts.processosId} />
-            </section>
+        {/* Tabelas + os três quadros de Leads. Só monta ao abrir pela primeira vez;
+            depois fica escondido, com o estado (visualização, busca, rolagem) intacto */}
+        {modes.map(({ key }) => visitadas.has(key) && (
+          <div key={key} hidden={mode !== key}>
+            {key === 'tabela' ? tabelasEl : kanbanEls[key]}
           </div>
-        )}
-
-        {/* KANBANS */}
-        {mode === 'funil' && (
-          leadsBoard ? (
-            <DynamicBoard key={leadsBoard.tableId} tableId={leadsBoard.tableId}
-              initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
-              sources={geralTables.sources} members={members} userId={userId} views={leadsBoard.views} />
-          ) : (
-            <KanbanBoard contacts={searched} field="funil_status" boardKey="funil"
-              initialColumns={kanbanColumns.funil} canEdit={canEditBoard} showTags={['status_geral']}
-              onNewPage={label => openNewInColumn(label, 'funil_status')} onEditCard={openEditCard} />
-          )
-        )}
-        {mode === 'negociacao' && (
-          leadsBoard ? (
-            <DynamicBoard key={leadsBoard.tableId + '-neg'} tableId={leadsBoard.tableId}
-              initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
-              sources={geralTables.sources} members={members} userId={userId}
-              groupColId={leadColId('Status Geral')} views={[{ id: 'neg', name: 'Leads em Negociação', type: 'board', position: 0 }]} />
-          ) : (
-            <KanbanBoard contacts={searched} field="status_geral" boardKey="negociacao"
-              initialColumns={kanbanColumns.negociacao} canEdit={canEditBoard} showTags={['renda', 'analise']}
-              onNewPage={label => openNewInColumn(label, 'status_geral')} onEditCard={openEditCard} />
-          )
-        )}
-        {mode === 'acoes' && (
-          leadsBoard ? (
-            <DynamicBoard key={leadsBoard.tableId + '-acoes'} tableId={leadsBoard.tableId}
-              initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
-              sources={geralTables.sources} members={members} userId={userId}
-              groupColId={leadColId('Status Processual')} views={[{ id: 'acoes', name: 'Ações', type: 'board', position: 0 }]} />
-          ) : (
-            <KanbanBoard contacts={searched} field="status_processual" boardKey="acoes"
-              initialColumns={kanbanColumns.acoes} canEdit={canEditBoard} showTags={['status_geral', 'observacao']}
-              onNewPage={label => openNewInColumn(label, 'status_processual')} onEditCard={openEditCard} />
-          )
-        )}
+        ))}
       </div>
 
       {/* Modal */}

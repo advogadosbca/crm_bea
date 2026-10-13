@@ -1,6 +1,7 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
 import { TabelasClient } from './TabelasClient'
 import { DBColumn, DBRow, DBTable, filterAdminOnly, isAdminRole } from '@/types/dynamic'
+import type { DBView } from '@/components/dynamic/DynamicBoard'
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ t?: string }> }) {
   const { supabase, user, profile } = await getAuthProfile()
@@ -47,9 +48,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
 
   // visualizações (Tabela/Quadro/…) da tabela ativa, para o toolbar com busca + configurações
   const { data: viewRows } = activeId
-    ? await supabase.from('db_views').select('id, name, type, position').eq('table_id', activeId).order('position')
+    ? await supabase.from('db_views').select('id, name, type, position, config').eq('table_id', activeId).is('escopo', null).order('position')
     : { data: [] }
-  const views = (viewRows || []) as { id: string; name: string; type: string; position: number }[]
+  const views = (viewRows || []) as DBView[]
 
   return (
     <TabelasClient
