@@ -10,7 +10,7 @@ import { FichaRegistro } from '@/components/dynamic/DynamicBoard'
 import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 import { Aviso, useAviso } from '@/components/ui/Aviso'
 import { DatePicker } from '@/components/ui/DatePicker'
-import { AlertTriangle, RefreshCw, ListTodo, ArrowUpRight, X, CalendarClock } from 'lucide-react'
+import { AlertTriangle, RefreshCw, ListTodo, ArrowUpRight, X, CalendarClock, Plus, Search, UserPlus } from 'lucide-react'
 
 /**
  * Painel de controle de leads (sub-aba Atendimentos da Geral).
@@ -216,22 +216,38 @@ export function Atendimentos({ tableId, initialColumns, initialRows, sources, me
    * Grava um campo do lead. Relê a linha antes de mesclar: o lead pode ter sido
    * editado no quadro ao lado (ou por outra pessoa) desde que esta tela leu.
    */
-  async function salvar(rowId: string, colId: string, value: unknown) {
-    if (somenteLeitura) return
+  async function salvarCampos(rowId: string, patch: Record<string, unknown>): Promise<boolean> {
+    if (somenteLeitura) return false
     const { data: atual, error: e1 } = await supabase.from('db_rows').select('data').eq('id', rowId).single()
-    if (e1 || !atual) { mostrar({ texto: `Não consegui gravar: ${e1?.message || 'lead não encontrado'}`, tipo: 'erro' }); return }
-    const data = { ...(atual.data as Record<string, unknown>), [colId]: value }
+    if (e1 || !atual) { mostrar({ texto: `Não consegui gravar: ${e1?.message || 'lead não encontrado'}`, tipo: 'erro' }); return false }
+    const data = { ...(atual.data as Record<string, unknown>), ...patch }
     const quando = new Date().toISOString()
     const { error } = await supabase.from('db_rows').update({ data, updated_by: userId, updated_at: quando }).eq('id', rowId)
-    if (error) { mostrar({ texto: `Não consegui gravar: ${error.message}`, tipo: 'erro' }); return }
+    if (error) { mostrar({ texto: `Não consegui gravar: ${error.message}`, tipo: 'erro' }); return false }
     setRows(rs => rs.map(r => r.id === rowId ? { ...r, data, updated_at: quando, updated_by: userId } : r))
     // marcar "Contrato Assinado" aqui tem o mesmo efeito que no quadro: vira cliente
-    if (disparaPromocao(columns.find(c => c.id === colId), value)) {
-      const res = await promoverLead(rowId)
-      if (res) mostrar(res)
+    for (const [colId, value] of Object.entries(patch)) {
+      if (disparaPromocao(columns.find(c => c.id === colId), value)) {
+        const res = await promoverLead(rowId)
+        if (res) mostrar(res)
+      }
     }
     sincronizarPagina()
+    return true
   }
+  const salvar = (rowId: string, colId: string, value: unknown) => salvarCampos(rowId, { [colId]: value })
+  /** lead criado pelo "Adicionar atendimento" quando ainda não existia na fonte */
+  async function criarLead(data: Record<string, unknown>): Promise<DBRow | null> {
+    const minPos = rows.reduce((m, r) => Math.min(m, r.position), 0)
+    const { data: novo, error } = await supabase.from('db_rows')
+      .insert({ table_id: tableId, data, position: minPos - 1, created_by: userId, updated_by: userId })
+      .select('*').single()
+    if (error || !novo) { mostrar({ texto: `Não consegui cadastrar o lead: ${error?.message || 'erro'}`, tipo: 'erro' }); return null }
+    setRows(rs => [novo as DBRow, ...rs])
+    sincronizarPagina()
+    return novo as DBRow
+  }
+  const [adicionando, setAdicionando] = useState(false)
   async function salvarOpcoes(colId: string, options: SelectOption[]) {
     const c = columns.find(x => x.id === colId); if (!c) return
     const config = { ...c.config, options }
@@ -327,11 +343,18 @@ export function Atendimentos({ tableId, initialColumns, initialRows, sources, me
             </button>
           ))}
           <div className="flex-1" />
-          <span className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>ao vivo · lido às {atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+          {/* hora do relógio: servidor e navegador podem discordar no minuto */}
+          <span suppressHydrationWarning className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>ao vivo · lido às {atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
           <button onClick={() => void recarregar()} disabled={atualizando} title="Reler os leads agora"
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs hover:bg-[var(--notion-bg-3)] disabled:opacity-50" style={{ color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
             <RefreshCw className={`w-3.5 h-3.5 ${atualizando ? 'animate-spin' : ''}`} /> Atualizar
           </button>
+          {!somenteLeitura && (
+            <button onClick={() => setAdicionando(true)} title="Marcar um atendimento para um lead"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-opacity hover:opacity-90" style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+              <Plus className="w-3.5 h-3.5" /> Adicionar atendimento
+            </button>
+          )}
         </div>
       </div>
 
@@ -495,6 +518,16 @@ export function Atendimentos({ tableId, initialColumns, initialRows, sources, me
           onDeleted={() => { setRows(rs => rs.filter(r => r.id !== linhaAberta.id)); setAberto(null) }} />
       )}
 
+      {adicionando && col.data && (
+        <AdicionarAtendimento rows={rows} col={col} rotulo={rotulo}
+          onClose={() => setAdicionando(false)}
+          onCriarLead={criarLead}
+          onSalvar={async (row, patch, msgOk) => {
+            const ok = await salvarCampos(row.id, patch)
+            if (ok) { setAdicionando(false); mostrar({ texto: msgOk, tipo: 'ok' }) }
+          }} />
+      )}
+
       {tarefaPara && (
         <NovaTarefa lead={tarefaPara} nome={String(tarefaPara.data[col.nome?.id || ''] || 'Lead')} lists={lists} members={members}
           userId={userId} workspaceId={workspaceId}
@@ -576,6 +609,201 @@ function NovaTarefa({ lead, nome, lists, members, userId, workspaceId, onClose, 
           <button type="button" onClick={onClose} className="flex-1 py-2 rounded-lg text-sm" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Cancelar</button>
           <button type="submit" disabled={salvando || !titulo.trim() || !listId} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium disabled:opacity-60" style={{ background: 'var(--notion-accent)', color: '#fff' }}>
             {salvando ? 'Criando…' : <>Criar tarefa <ArrowUpRight className="w-3.5 h-3.5" /></>}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+/**
+ * "Adicionar atendimento": acha o lead na fonte Leads (nome ou telefone) e
+ * grava a Data do atendimento nele — é isso que o coloca no painel. Se o lead
+ * ainda não existe, cadastra ali mesmo (nome + telefone + data).
+ *
+ * Telefone se compara só pelos dígitos: "31 9 9531-6990", "(31) 99531-6990" e
+ * "995316990" acham o mesmo lead.
+ */
+function AdicionarAtendimento({ rows, col, rotulo, onClose, onSalvar, onCriarLead }: {
+  rows: DBRow[]
+  col: Record<keyof typeof COLS, DBColumn | undefined>
+  rotulo: (c: DBColumn | undefined, v: unknown) => string
+  onClose: () => void
+  onSalvar: (row: DBRow, patch: Record<string, unknown>, msgOk: string) => Promise<void>
+  onCriarLead: (data: Record<string, unknown>) => Promise<DBRow | null>
+}) {
+  const [q, setQ] = useState('')
+  const [escolhido, setEscolhido] = useState<DBRow | null>(null)
+  const [novo, setNovo] = useState(false)
+  const [nome, setNome] = useState('')
+  const [telefone, setTelefone] = useState('')
+  const [dia, setDia] = useState('')
+  const [hora, setHora] = useState('09:00')
+  const [salvando, setSalvando] = useState(false)
+  const inp: React.CSSProperties = { background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }
+  const digitos = (s: string) => (s || '').replace(/\D/g, '')
+
+  const campo = (r: DBRow, c?: DBColumn) => (c ? r.data[c.id] : undefined)
+  const nomeDe = (r: DBRow) => String(campo(r, col.nome) || '(sem nome)')
+  const telDe = (r: DBRow) => String(campo(r, col.telefone) || '')
+
+  const resultados = useMemo(() => {
+    const termo = nrm(q)
+    const dq = digitos(q)
+    const temLetra = /[a-zà-ú]/i.test(q)
+    if (termo.length < 2 && dq.length < 3) return []
+    const achados = rows.filter(r => {
+      const porNome = temLetra && nrm(nomeDe(r)).includes(termo)
+      const porTel = dq.length >= 3 && digitos(telDe(r)).includes(dq)
+      return porNome || porTel
+    })
+    // começa com o termo primeiro, depois quem mexeu por último
+    const comeca = (r: DBRow) => (temLetra && nrm(nomeDe(r)).startsWith(termo)) || (dq.length >= 3 && digitos(telDe(r)).startsWith(dq)) ? 0 : 1
+    return achados
+      .sort((a, b) => comeca(a) - comeca(b) || (b.updated_at || '').localeCompare(a.updated_at || ''))
+      .slice(0, 8)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, rows])
+
+  const dataAtual = escolhido && col.data ? lerData(campo(escolhido, col.data)) : null
+  const atendAtual = escolhido ? rotulo(col.atendimento, campo(escolhido, col.atendimento)) : ''
+  const reagendaNaoVeio = nrm(atendAtual) === 'nao'
+  const fmt = (d: Date) => d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const buscaCurta = nrm(q).length < 2 && digitos(q).length < 3
+
+  function abrirNovo() {
+    setNovo(true); setEscolhido(null)
+    if (digitos(q).length >= 8 && !/[a-zà-ú]/i.test(q)) setTelefone(q.trim()); else setNome(q.trim())
+  }
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    if (!col.data || !dia) return
+    const quando = `${dia}T${hora || '09:00'}`
+    setSalvando(true)
+    if (novo) {
+      // não duplicar: o mesmo telefone já pode estar na fonte com outro nome
+      const dt = digitos(telefone)
+      const jaExiste = dt.length >= 8 ? rows.find(r => digitos(telDe(r)).endsWith(dt.slice(-8))) : undefined
+      if (jaExiste) { setSalvando(false); setNovo(false); setEscolhido(jaExiste); return }
+      const data: Record<string, unknown> = { [col.data.id]: quando }
+      if (col.nome) data[col.nome.id] = nome.trim()
+      if (col.telefone && telefone.trim()) data[col.telefone.id] = telefone.trim()
+      const criado = await onCriarLead(data)
+      setSalvando(false)
+      if (criado) onClose()
+      return
+    }
+    if (!escolhido) { setSalvando(false); return }
+    const patch: Record<string, unknown> = { [col.data.id]: quando }
+    // faltou e foi reagendado: o "Não" era do atendimento anterior
+    if (reagendaNaoVeio && col.atendimento) patch[col.atendimento.id] = null
+    await onSalvar(escolhido, patch, `Atendimento de ${nomeDe(escolhido)} marcado para ${fmt(new Date(quando))}.`)
+    setSalvando(false)
+  }
+
+  const podeSalvar = !!dia && (novo ? !!nome.trim() : !!escolhido)
+  const areaDe = (r: DBRow) => rotulo(col.demanda, campo(r, col.demanda))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh]" style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <form onSubmit={salvar} className="w-full max-w-lg rounded-xl p-5 space-y-4 shadow-2xl animate-fade-in" style={{ background: 'var(--notion-bg-2)', border: '1px solid var(--notion-border)' }}>
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
+            <CalendarClock className="w-4 h-4" /> Adicionar atendimento
+          </h3>
+          <button type="button" onClick={onClose} style={{ color: 'var(--notion-text-3)' }}><X className="w-4 h-4" /></button>
+        </div>
+
+        {!novo && !escolhido && (
+          <div>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={inp}>
+              <Search className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--notion-text-3)' }} />
+              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar lead por nome ou telefone…"
+                className="flex-1 bg-transparent text-sm outline-none" style={{ color: 'var(--notion-text)' }} />
+            </div>
+            <div className="mt-2 space-y-1 max-h-80 overflow-y-auto">
+              {resultados.map(r => {
+                const d = col.data ? lerData(campo(r, col.data)) : null
+                const area = areaDe(r)
+                return (
+                  <button type="button" key={r.id} onClick={() => setEscolhido(r)}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors hover:bg-[var(--notion-bg-3)]"
+                    style={{ border: '1px solid var(--notion-border)' }}>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>{nomeDe(r)}</span>
+                      <span className="block text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+                        {telDe(r) || 'sem telefone'}{area ? ` · ${area}` : ''}{r.arquivado_em ? ' · arquivado' : ''}
+                      </span>
+                    </span>
+                    {d && <span className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap" style={{ background: 'rgba(59,130,246,0.15)', color: '#60A5FA' }}>marcado {fmt(d)}</span>}
+                  </button>
+                )
+              })}
+              {!buscaCurta && resultados.length === 0 && (
+                <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Nenhum lead encontrado com &quot;{q}&quot;.</p>
+              )}
+              {buscaCurta && (
+                <p className="text-xs px-1 py-2" style={{ color: 'var(--notion-text-3)' }}>Digite ao menos 2 letras do nome ou 3 números do telefone.</p>
+              )}
+            </div>
+            <button type="button" onClick={abrirNovo} className="mt-2 flex items-center gap-1.5 text-xs hover:underline" style={{ color: 'var(--notion-accent)' }}>
+              <UserPlus className="w-3.5 h-3.5" /> Não achou? Cadastrar lead novo
+            </button>
+          </div>
+        )}
+
+        {escolhido && (
+          <div className="rounded-lg p-3" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)' }}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>{nomeDe(escolhido)}</p>
+                <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+                  {telDe(escolhido) || 'sem telefone'}{areaDe(escolhido) ? ` · ${areaDe(escolhido)}` : ''}
+                </p>
+              </div>
+              <button type="button" onClick={() => setEscolhido(null)} className="text-[11px] hover:underline whitespace-nowrap" style={{ color: 'var(--notion-accent)' }}>trocar lead</button>
+            </div>
+            {dataAtual && (
+              <p className="text-[11px] mt-2" style={{ color: '#FBBF24' }}>
+                Já tinha atendimento marcado em {fmt(dataAtual)}{atendAtual ? ` (Atendimento: ${atendAtual})` : ''}. A data nova substitui a anterior.
+                {reagendaNaoVeio && ' Como ele não tinha vindo, o campo Atendimento volta para vazio.'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {novo && (
+          <div className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Novo lead na fonte <b>Leads</b>:</p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-xs" style={{ color: 'var(--notion-text-2)' }}>Nome *
+                <input autoFocus value={nome} onChange={e => setNome(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg text-sm" style={inp} />
+              </label>
+              <label className="block text-xs" style={{ color: 'var(--notion-text-2)' }}>Telefone
+                <input value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="31 9 9999-9999" className="mt-1 w-full px-3 py-2 rounded-lg text-sm" style={inp} />
+              </label>
+            </div>
+            <button type="button" onClick={() => setNovo(false)} className="text-[11px] hover:underline" style={{ color: 'var(--notion-accent)' }}>← voltar para a busca</button>
+          </div>
+        )}
+
+        {(escolhido || novo) && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Data do atendimento *
+              <div className="mt-1"><DatePicker value={dia} onChange={setDia} /></div>
+            </div>
+            <label className="block text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora
+              <input type="time" value={hora} onChange={e => setHora(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg text-sm" style={inp} />
+            </label>
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={onClose} className="flex-1 py-2 rounded-lg text-sm" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Cancelar</button>
+          <button type="submit" disabled={!podeSalvar || salvando} className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50" style={{ background: 'var(--notion-accent)', color: '#fff' }}>
+            {salvando ? 'Salvando…' : novo ? 'Cadastrar e marcar' : 'Marcar atendimento'}
           </button>
         </div>
       </form>
