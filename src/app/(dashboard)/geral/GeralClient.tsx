@@ -52,9 +52,11 @@ interface Props {
   leadsBoard?: LeadsBoard | null
   /** ?card=<id>: cartão a abrir direto no Quadro de Tarefas (link vindo do painel do cliente) */
   openCardId?: string
+  /** sub-abas que este usuário pode abrir (engrenagem de Membros, lib/abas) */
+  subAbasLiberadas: Mode[]
 }
 
-type Mode = 'tabela' | 'funil' | 'negociacao' | 'acoes' | 'atendimentos'
+export type Mode = 'tabela' | 'funil' | 'negociacao' | 'acoes' | 'atendimentos'
 
 const fmtBRL = (v?: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 const fmtDate = (d?: string) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : '—'
@@ -66,7 +68,7 @@ function Tag({ label, color }: { label: string; color: string }) {
   )
 }
 
-export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard, openCardId }: Props) {
+export function GeralClient({ contacts, members, workspaceId, userId, headerAssets, kanbanColumns, board, geralTables, shortcuts, leadsBoard, openCardId, subAbasLiberadas }: Props) {
   const canEditBoard = headerAssets.canEdit
 
   async function novoNaFonte(tableId: string) {
@@ -76,8 +78,10 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
     void data
   }
   // o Quadro de Tarefas só existe no modo tabela; se veio link de tarefa, volta pra ele
-  const [mode, setMode] = useState<Mode>('tabela')
-  useEffect(() => { if (openCardId) setMode('tabela') }, [openCardId])
+  // sub-aba bloqueada para o usuário nem aparece no seletor nem é montada
+  const liberada = (m: Mode) => subAbasLiberadas.includes(m)
+  const [mode, setMode] = useState<Mode>(() => (liberada('tabela') ? 'tabela' : subAbasLiberadas[0] ?? 'tabela'))
+  useEffect(() => { if (openCardId && subAbasLiberadas.includes('tabela')) setMode('tabela') }, [openCardId, subAbasLiberadas])
   // Sub-aba aberta uma vez fica montada (só escondida). Desmontar e remontar a
   // cada troca levava ~2s (centenas de leads redesenhados) e perdia o estado:
   // a visualização voltava ao que o servidor mandou quando a página abriu.
@@ -171,7 +175,7 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
     { key: 'negociacao', label: 'Leads em Negociação', icon: Users2 },
     { key: 'acoes', label: 'Ações', icon: Gavel },
     { key: 'atendimentos', label: 'Atendimentos', icon: CalendarCheck },
-  ]
+  ].filter(m => liberada(m.key as Mode)) as { key: Mode; label: string; icon: typeof Table2 }[]
 
   // Os painéis são memorizados: trocar de sub-aba muda só o `hidden` do
   // contêiner, sem redesenhar os quadros que já estão montados.
@@ -361,6 +365,11 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
             {key === 'tabela' ? tabelasEl : key === 'atendimentos' ? atendimentosEl : kanbanEls[key]}
           </div>
         ))}
+        {modes.length === 0 && (
+          <p className="text-sm rounded-xl border p-6" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)', color: 'var(--notion-text-2)' }}>
+            Nenhuma parte da Geral está liberada para você. Fale com um administrador (tela Membros).
+          </p>
+        )}
       </div>
 
       {/* Modal */}

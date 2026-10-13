@@ -6,18 +6,40 @@
  * `profiles.abas` guarda só as exceções: { financeiro: true, marketing: false }.
  * Aba sem exceção segue o padrão do papel: admin vê tudo; os demais veem tudo
  * menos o que é `soAdmin`.
+ *
+ * Sub-abas (ex.: as da Geral) usam o mesmo esquema, com slug "aba.sub"
+ * ("geral.atendimentos"). Sub-aba só abre se a aba-mãe também abrir.
  */
 
-export interface Aba {
+export interface SubAba {
+  /** "aba.sub" — é a chave gravada em profiles.abas */
   slug: string
   label: string
   /** fechada por padrão para quem não é admin (o admin pode liberar) */
   soAdmin?: boolean
 }
 
+export interface Aba {
+  slug: string
+  label: string
+  /** fechada por padrão para quem não é admin (o admin pode liberar) */
+  soAdmin?: boolean
+  subAbas?: SubAba[]
+}
+
 export const ABAS: Aba[] = [
   { slug: 'novidades', label: 'Notificações' },
-  { slug: 'geral', label: 'Geral' },
+  {
+    slug: 'geral', label: 'Geral',
+    subAbas: [
+      { slug: 'geral.tabelas', label: 'Tabelas' },
+      { slug: 'geral.funil', label: 'Funil Pré-Atendimento' },
+      { slug: 'geral.negociacao', label: 'Leads em Negociação' },
+      { slug: 'geral.acoes', label: 'Ações' },
+      // valores de contrato e funil comercial: só sócios por padrão (Gabriel, 13/10/2026)
+      { slug: 'geral.atendimentos', label: 'Atendimentos', soAdmin: true },
+    ],
+  },
   { slug: 'fontes', label: 'Fonte de dados' },
   { slug: 'financeiro', label: 'Financeiro', soAdmin: true },
   { slug: 'dashboard', label: 'Dashboard', soAdmin: true },
@@ -37,6 +59,12 @@ export const ABAS: Aba[] = [
 
 export type PermissoesAbas = Record<string, boolean>
 
+/** abas e sub-abas numa lista só — tudo que a engrenagem de Membros controla */
+export const ITENS_DE_ACESSO: (Aba | SubAba)[] = ABAS.flatMap(a => [a, ...(a.subAbas || [])])
+const acharItem = (slug: string) => ITENS_DE_ACESSO.find(a => a.slug === slug)
+/** "geral.atendimentos" → "geral"; aba de menu → null */
+export const abaMae = (slug: string) => (slug.includes('.') ? slug.split('.')[0] : null)
+
 export const PAPEIS_ADMIN = ['admin', 'super_admin']
 export const ehAdmin = (role?: string | null) => PAPEIS_ADMIN.includes(role || '')
 export const ehVisualizador = (role?: string | null) => role === 'visualizador'
@@ -46,14 +74,17 @@ export const abaTravadaParaAdmin = (slug: string) => slug === 'membros'
 
 /** padrão do papel, sem olhar as exceções */
 export function padraoDaAba(role: string | null | undefined, slug: string): boolean {
-  const aba = ABAS.find(a => a.slug === slug)
+  const aba = acharItem(slug)
   if (!aba) return true
   return ehAdmin(role) || !aba.soAdmin
 }
 
 export function podeVerAba(role: string | null | undefined, abas: unknown, slug: string): boolean {
-  if (!ABAS.some(a => a.slug === slug)) return true
+  if (!acharItem(slug)) return true
   if (role === 'super_admin') return true
+  // sub-aba de uma aba fechada também fica fechada
+  const mae = abaMae(slug)
+  if (mae && !podeVerAba(role, abas, mae)) return false
   if (ehAdmin(role) && abaTravadaParaAdmin(slug)) return true
   const excecao = abas && typeof abas === 'object' ? (abas as PermissoesAbas)[slug] : undefined
   return typeof excecao === 'boolean' ? excecao : padraoDaAba(role, slug)
@@ -74,7 +105,7 @@ export function abaDaRota(pathname: string): string | null {
 export function sanitizarAbas(entrada: unknown): PermissoesAbas {
   const out: PermissoesAbas = {}
   if (!entrada || typeof entrada !== 'object') return out
-  for (const aba of ABAS) {
+  for (const aba of ITENS_DE_ACESSO) {
     const v = (entrada as Record<string, unknown>)[aba.slug]
     if (typeof v === 'boolean') out[aba.slug] = v
   }

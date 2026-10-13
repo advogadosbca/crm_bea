@@ -1,5 +1,9 @@
 import { getAuthProfile, getPageAssets } from '@/lib/auth'
-import { GeralClient, type LeadsBoard } from './GeralClient'
+import { GeralClient, type LeadsBoard, type Mode } from './GeralClient'
+import { podeVerAba } from '@/lib/abas'
+
+/** sub-abas da Geral, na ordem da tela; a chave de acesso é "geral.<sub>" (lib/abas) */
+const SUB_ABAS: Mode[] = ['tabela', 'funil', 'negociacao', 'acoes', 'atendimentos']
 import type { DBView } from '@/components/dynamic/DynamicBoard'
 import { DBColumn, DBRow, filterAdminOnly, isAdminRole } from '@/types/dynamic'
 import { fetchAllRows } from '@/lib/db-rows'
@@ -135,6 +139,7 @@ export default async function GeralPage({ searchParams }: {
       shortcuts={shortcuts}
       leadsBoard={leadsBoard}
       openCardId={cardParam}
+      subAbasLiberadas={SUB_ABAS.filter(m => podeVerAba(profile?.role, profile?.abas, `geral.${m === 'tabela' ? 'tabelas' : m}`))}
     />
   )
 }

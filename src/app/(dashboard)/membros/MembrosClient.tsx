@@ -5,7 +5,7 @@ import { Users2, Shield, ShieldCheck, User as UserIcon, Trash2, MailCheck, Clock
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { Toolbar, Modal, Field, Input, Select, ModalActions } from '@/components/ui/primitives'
-import { ABAS, PermissoesAbas, abaTravadaParaAdmin, ehAdmin, padraoDaAba, podeVerAba } from '@/lib/abas'
+import { ABAS, ITENS_DE_ACESSO, PermissoesAbas, abaTravadaParaAdmin, ehAdmin, padraoDaAba, podeVerAba } from '@/lib/abas'
 
 interface Member {
   id: string; full_name: string; email: string; role: string
@@ -20,9 +20,11 @@ const ROLE_META: Record<string, { label: string; color: string; icon: typeof Shi
   visualizador: { label: 'Visualizador', color: '#94A3B8', icon: Eye },
 }
 
-/** abas que fogem do padrão do papel — o que a engrenagem mudou de fato */
-const abasPersonalizadas = (m: Member) =>
-  ABAS.filter(a => podeVerAba(m.role, m.abas, a.slug) !== padraoDaAba(m.role, a.slug)).length
+/** abas e sub-abas que fogem do padrão do papel — o que a engrenagem mudou de fato */
+const abasPersonalizadas = (m: Member) => {
+  const ex = m.abas || {}
+  return ITENS_DE_ACESSO.filter(a => typeof ex[a.slug] === 'boolean' && ex[a.slug] !== padraoDaAba(m.role, a.slug)).length
+}
 
 export function MembrosClient({ headerAssets, members, currentRole, currentUserId }: {
   headerAssets: HeaderAssets;
@@ -211,7 +213,8 @@ export function MembrosClient({ headerAssets, members, currentRole, currentUserI
 }
 
 /**
- * Engrenagem do card: liga/desliga cada aba do menu para um membro.
+ * Engrenagem do card: liga/desliga cada aba do menu — e as sub-abas dela, logo
+ * abaixo e recuadas — para um membro. Sub-aba de aba desligada fica apagada.
  * Grava só o que foge do padrão do papel — se o membro mudar de papel depois,
  * as abas que ninguém mexeu acompanham o papel novo.
  */
@@ -219,7 +222,9 @@ function AcessoAbasModal({ member, onClose, onSave }: {
   member: Member; onClose: () => void; onSave: (abas: PermissoesAbas) => Promise<void>
 }) {
   const [liberadas, setLiberadas] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(ABAS.map(a => [a.slug, podeVerAba(member.role, member.abas, a.slug)])),
+    // sub-aba guarda a própria escolha, mesmo com a mãe desligada: religar a mãe devolve como estava
+    () => Object.fromEntries(ITENS_DE_ACESSO.map(a => [a.slug,
+      typeof member.abas?.[a.slug] === 'boolean' ? member.abas[a.slug] : padraoDaAba(member.role, a.slug)])),
   )
   const [saving, setSaving] = useState(false)
   const admin = ehAdmin(member.role)
@@ -229,7 +234,7 @@ function AcessoAbasModal({ member, onClose, onSave }: {
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setSaving(true)
     const excecoes: PermissoesAbas = {}
-    for (const a of ABAS) {
+    for (const a of ITENS_DE_ACESSO) {
       if (travada(a.slug)) continue
       if (liberadas[a.slug] !== padraoDaAba(member.role, a.slug)) excecoes[a.slug] = liberadas[a.slug]
     }
@@ -237,8 +242,31 @@ function AcessoAbasModal({ member, onClose, onSave }: {
     setSaving(false)
   }
 
-  const todas = (v: boolean) => setLiberadas(Object.fromEntries(ABAS.map(a => [a.slug, travada(a.slug) || v])))
-  const padrao = () => setLiberadas(Object.fromEntries(ABAS.map(a => [a.slug, padraoDaAba(member.role, a.slug)])))
+  const todas = (v: boolean) => setLiberadas(Object.fromEntries(ITENS_DE_ACESSO.map(a => [a.slug, travada(a.slug) || v])))
+  const padrao = () => setLiberadas(Object.fromEntries(ITENS_DE_ACESSO.map(a => [a.slug, padraoDaAba(member.role, a.slug)])))
+  const linha = (slug: string, label: string, sub: boolean, maeOn: boolean) => {
+    const on = liberadas[slug]
+    const fixa = travada(slug)
+    const apagada = sub && !maeOn
+    const foraDoPadrao = !fixa && on !== padraoDaAba(member.role, slug)
+    return (
+      <button type="button" key={slug} disabled={fixa || apagada}
+        onClick={() => setLiberadas(l => ({ ...l, [slug]: !l[slug] }))}
+        title={fixa ? 'Admin sempre acessa Membros — é por aqui que se desfaz um bloqueio' : apagada ? 'A aba de cima está desligada' : undefined}
+        className="w-full flex items-center gap-3 py-2 pr-3 text-left transition-colors hover:bg-[var(--notion-bg-3)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        style={{ borderColor: 'var(--notion-border)', paddingLeft: sub ? 28 : 12, opacity: apagada ? 0.45 : 1 }}>
+        <span className={`flex-1 ${sub ? 'text-xs' : 'text-sm'}`} style={{ color: on && !apagada ? 'var(--notion-text)' : 'var(--notion-text-3)' }}>
+          {sub && <span style={{ color: 'var(--notion-text-3)' }}>↳ </span>}{label}
+        </span>
+        {fixa && <Lock className="w-3 h-3" style={{ color: 'var(--notion-text-3)' }} />}
+        {foraDoPadrao && !apagada && <span className="text-[10px]" style={{ color: 'var(--notion-accent)' }}>alterado</span>}
+        <span className="w-8 h-[18px] rounded-full flex items-center px-0.5 transition-colors flex-shrink-0"
+          style={{ background: on ? 'var(--notion-accent)' : 'var(--notion-bg-4)', opacity: fixa ? 0.5 : 1 }}>
+          <span className="w-3.5 h-3.5 rounded-full bg-white transition-transform" style={{ transform: on ? 'translateX(14px)' : 'none' }} />
+        </span>
+      </button>
+    )
+  }
   const linkBtn = 'px-2 py-1 rounded-md text-xs transition-colors hover:bg-[var(--notion-bg-3)]'
 
   return (
@@ -255,26 +283,10 @@ function AcessoAbasModal({ member, onClose, onSave }: {
           <span className="ml-auto text-xs pr-2" style={{ color: 'var(--notion-text-3)' }}>{total} de {ABAS.length} liberadas</span>
         </div>
         <div className="rounded-lg border divide-y" style={{ borderColor: 'var(--notion-border)' }}>
-          {ABAS.map(a => {
-            const on = liberadas[a.slug]
-            const fixa = travada(a.slug)
-            const foraDoPadrao = !fixa && on !== padraoDaAba(member.role, a.slug)
-            return (
-              <button type="button" key={a.slug} disabled={fixa}
-                onClick={() => setLiberadas(l => ({ ...l, [a.slug]: !l[a.slug] }))}
-                title={fixa ? 'Admin sempre acessa Membros — é por aqui que se desfaz um bloqueio' : undefined}
-                className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-[var(--notion-bg-3)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                style={{ borderColor: 'var(--notion-border)' }}>
-                <span className="flex-1 text-sm" style={{ color: on ? 'var(--notion-text)' : 'var(--notion-text-3)' }}>{a.label}</span>
-                {fixa && <Lock className="w-3 h-3" style={{ color: 'var(--notion-text-3)' }} />}
-                {foraDoPadrao && <span className="text-[10px]" style={{ color: 'var(--notion-accent)' }}>alterado</span>}
-                <span className="w-8 h-[18px] rounded-full flex items-center px-0.5 transition-colors flex-shrink-0"
-                  style={{ background: on ? 'var(--notion-accent)' : 'var(--notion-bg-4)', opacity: fixa ? 0.5 : 1 }}>
-                  <span className="w-3.5 h-3.5 rounded-full bg-white transition-transform" style={{ transform: on ? 'translateX(14px)' : 'none' }} />
-                </span>
-              </button>
-            )
-          })}
+          {ABAS.map(a => [
+            linha(a.slug, a.label, false, true),
+            ...(a.subAbas || []).map(sa => linha(sa.slug, sa.label, true, liberadas[a.slug])),
+          ])}
         </div>
         <ModalActions onCancel={onClose} saving={saving} />
       </form>
