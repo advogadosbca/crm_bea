@@ -12,6 +12,7 @@ import { useIsAdmin, useSomenteLeitura } from '@/components/layout/RoleProvider'
 import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import { fetchAllRows } from '@/lib/db-rows'
 import { Calendar as CalendarGrade } from '@/components/ui/DatePicker'
+import { TimePicker } from '@/components/ui/TimePicker'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
@@ -1079,7 +1080,14 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
     refreshActivity()
   }
 
-  const dueLocal = card.due_date ? new Date(card.due_date).toISOString().slice(0, 16) : ''
+  // prazo em hora LOCAL ("AAAA-MM-DDTHH:MM"). Era toISOString(), que é UTC: quem
+  // marcava 09:00 via 12:00 ao reabrir, e à noite a data pulava para o dia seguinte
+  const dueLocal = (() => {
+    if (!card.due_date) return ''
+    const d = new Date(card.due_date)
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+  })()
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.6)' }}
@@ -1223,9 +1231,8 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
                   <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-b-xl"
                     style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', borderTop: 'none' }}>
                     <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora</span>
-                    <input type="time" value={dueLocal.slice(11, 16)} disabled={!dueLocal}
-                      onChange={e => setDue(`${dueLocal.slice(0, 10) || today}T${e.target.value || '00:00'}`)}
-                      className="px-2 py-1 rounded text-xs" style={{ background: 'var(--notion-bg-4)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+                    <TimePicker compact value={dueLocal.slice(11, 16)} disabled={!dueLocal}
+                      onChange={hora => setDue(`${dueLocal.slice(0, 10) || today}T${hora || '00:00'}`)} />
                   </div>
                 </div>
               )}

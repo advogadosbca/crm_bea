@@ -10,6 +10,7 @@ import { FichaRegistro } from '@/components/dynamic/DynamicBoard'
 import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 import { Aviso, useAviso } from '@/components/ui/Aviso'
 import { DatePicker } from '@/components/ui/DatePicker'
+import { TimePicker } from '@/components/ui/TimePicker'
 import { AlertTriangle, RefreshCw, ListTodo, ArrowUpRight, X, CalendarClock, Plus, Search, UserPlus } from 'lucide-react'
 
 /**
@@ -794,9 +795,9 @@ function AdicionarAtendimento({ rows, col, rotulo, onClose, onSalvar, onCriarLea
             <div className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Data do atendimento *
               <div className="mt-1"><DatePicker value={dia} onChange={setDia} /></div>
             </div>
-            <label className="block text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora
-              <input type="time" value={hora} onChange={e => setHora(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg text-sm" style={inp} />
-            </label>
+            <div className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora
+              <div className="mt-1"><TimePicker value={hora} onChange={setHora} /></div>
+            </div>
           </div>
         )}
 

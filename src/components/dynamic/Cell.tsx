@@ -10,6 +10,7 @@ import {
 } from '@/types/dynamic'
 import { Check, Plus, ExternalLink, X, ArrowUpRight, Upload, Link2, Loader2, MoreHorizontal, Trash2, Search, ListChecks } from 'lucide-react'
 import { Calendar } from '@/components/ui/DatePicker'
+import { TimePicker } from '@/components/ui/TimePicker'
 import { useSomenteLeitura } from '@/components/layout/RoleProvider'
 
 interface Member { id: string; full_name: string }
@@ -285,9 +286,8 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
                 <div className="flex items-center justify-between gap-2 px-3 py-2 -mt-1 rounded-b-xl"
                   style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', borderTop: 'none' }}>
                   <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora</span>
-                  <input type="time" value={horaParte} disabled={!dataParte}
-                    onChange={e => onChange(`${dataParte}T${e.target.value || '00:00'}`)}
-                    className="px-2 py-1 rounded text-xs" style={{ background: 'var(--notion-bg-4)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+                  <TimePicker compact value={horaParte} disabled={!dataParte}
+                    onChange={hora => onChange(`${dataParte}T${hora || '00:00'}`)} />
                 </div>
               )}
             </div>

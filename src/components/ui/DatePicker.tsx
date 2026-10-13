@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react'
 import { inputStyle, fmtDate } from './primitives'
+import { TimePicker } from './TimePicker'
 
 const DIAS_SEMANA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -152,9 +153,8 @@ export function DatePicker({ value, onChange, min, max, placeholder = 'Seleciona
             <div className="flex items-center justify-between gap-2 px-3 py-2 -mt-1 rounded-b-xl"
               style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', borderTop: 'none' }}>
               <span className="text-xs" style={{ color: 'var(--notion-text-2)' }}>Hora</span>
-              <input type="time" value={horaParte} disabled={!dataParte}
-                onChange={e => onChange(`${dataParte}T${e.target.value || '00:00'}`)}
-                className="px-2 py-1 rounded text-xs" style={{ background: 'var(--notion-bg-4)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+              <TimePicker compact value={horaParte} disabled={!dataParte}
+                onChange={hora => onChange(`${dataParte}T${hora || '00:00'}`)} />
             </div>
           )}
         </div>,
