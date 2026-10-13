@@ -6,7 +6,7 @@ import {
   STATUS_PROCESSUAL_OPTIONS, STATUS_PROCESSUAL_COLORS, FUNIL_OPTIONS,
   RENDA_OPTIONS, ANALISE_OPTIONS,
 } from '@/types'
-import { Plus, Search, AlertTriangle, Clock, X, Settings, Table2, MessageSquare, Users2, Gavel, Database } from 'lucide-react'
+import { Plus, Search, AlertTriangle, Clock, X, Settings, Table2, MessageSquare, Users2, Gavel, Database, CalendarCheck } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -17,6 +17,7 @@ import { DatePicker } from '@/components/ui/DatePicker'
 import { ProjectBoard, BList, BCard, BLabel } from '@/components/board/ProjectBoard'
 import { DynamicTable } from '@/components/dynamic/DynamicTable'
 import { DynamicBoard, DBView } from '@/components/dynamic/DynamicBoard'
+import { Atendimentos } from './Atendimentos'
 import { DBColumn, DBRow, DataSource } from '@/types/dynamic'
 
 type DynTable = { tableId: string; columns: DBColumn[]; rows: DBRow[] } | null
@@ -53,7 +54,7 @@ interface Props {
   openCardId?: string
 }
 
-type Mode = 'tabela' | 'funil' | 'negociacao' | 'acoes'
+type Mode = 'tabela' | 'funil' | 'negociacao' | 'acoes' | 'atendimentos'
 
 const fmtBRL = (v?: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 const fmtDate = (d?: string) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : '—'
@@ -169,6 +170,7 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
     { key: 'funil', label: 'Funil Pré-Atendimento', icon: MessageSquare },
     { key: 'negociacao', label: 'Leads em Negociação', icon: Users2 },
     { key: 'acoes', label: 'Ações', icon: Gavel },
+    { key: 'atendimentos', label: 'Atendimentos', icon: CalendarCheck },
   ]
 
   // Os painéis são memorizados: trocar de sub-aba muda só o `hidden` do
@@ -286,6 +288,16 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadsBoard, geralTables.sources, members, userId, searched, kanbanColumns, canEditBoard])
 
+  // painel de controle de leads: calculado ao vivo da mesma fonte Leads dos quadros
+  const atendimentosAtivo = mode === 'atendimentos'
+  const atendimentosEl = useMemo(() => leadsBoard ? (
+    <Atendimentos tableId={leadsBoard.tableId} initialColumns={leadsBoard.columns} initialRows={leadsBoard.rows}
+      sources={geralTables.sources} members={members} userId={userId} workspaceId={workspaceId}
+      lists={board.lists} ativo={atendimentosAtivo} />
+  ) : (
+    <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Fonte Leads não provisionada.</p>
+  ), [leadsBoard, geralTables.sources, members, userId, workspaceId, board.lists, atendimentosAtivo])
+
   return (
     <div className="min-h-screen">
       <EditableHeader title="Geral" icon={Settings} color="#818CF8"
@@ -346,7 +358,7 @@ export function GeralClient({ contacts, members, workspaceId, userId, headerAsse
             depois fica escondido, com o estado (visualização, busca, rolagem) intacto */}
         {modes.map(({ key }) => visitadas.has(key) && (
           <div key={key} hidden={mode !== key}>
-            {key === 'tabela' ? tabelasEl : kanbanEls[key]}
+            {key === 'tabela' ? tabelasEl : key === 'atendimentos' ? atendimentosEl : kanbanEls[key]}
           </div>
         ))}
       </div>

@@ -1046,3 +1046,6 @@ function CalendarView({ rows, columns, titleCol, onOpen }: {
     </div>
   )
 }
+
+// a ficha do lead é reaproveitada pelo painel de Atendimentos da Geral
+export { RecordPanel as FichaRegistro }
