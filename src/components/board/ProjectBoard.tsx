@@ -13,11 +13,12 @@ import { ALTURA_MAX_COLUNA } from '@/components/ui/kanban-layout'
 import { fetchAllRows } from '@/lib/db-rows'
 import { Calendar as CalendarGrade } from '@/components/ui/DatePicker'
 import { TimePicker } from '@/components/ui/TimePicker'
+import { AvaliarTarefa, AvaliacaoDoCard } from '@/components/avaliacoes/AvaliarTarefa'
 import {
   Plus, X, Clock, MessageSquare, AlignLeft, Tag as TagIcon,
   Check, Pencil, Trash2, MoreHorizontal, Calendar,
   Paperclip, Users, Search, Link2, Download, Loader2, FileText,
-  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive, ArchiveRestore, Scale,
+  CheckSquare, CheckCircle2, Ban, UserX, AlertTriangle, Archive, ArchiveRestore, Scale, ClipboardCheck,
 } from 'lucide-react'
 
 export interface BMember { id: string; full_name: string; avatar_url?: string }
@@ -827,6 +828,22 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
   })()
   const history = activity.filter(a => a.kind === 'event' || a.kind === 'comment')
 
+  // Avaliação da entrega pelo próprio cartão: só admin, só com a tarefa
+  // finalizada — concluída, ou parada na coluna "Finalizado" sem ninguém ter
+  // clicado em Concluir. Cancelada não se avalia. Grava na mesma tabela da aba
+  // Avaliações, então cai sozinha no relatório.
+  const podeAvaliar = isAdmin && state !== 'canceled' && (state === 'done' || encerrada)
+  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoDoCard[] | null>(null)
+  const [avaliando, setAvaliando] = useState(false)
+  const carregarAvaliacoes = useCallback(async () => {
+    const { data } = await supabase.from('avaliacoes_entrega')
+      .select('id, avaliado_id, entrega_no_prazo, quantidade_correcao, observacao').eq('card_id', card.id)
+    setAvaliacoes((data || []) as AvaliacaoDoCard[])
+  }, [card.id, supabase])
+  useEffect(() => { if (podeAvaliar) void carregarAvaliacoes() }, [podeAvaliar, carregarAvaliacoes])
+  const avaliadosNoCard = (avaliacoes || []).filter(a => card.members.includes(a.avaliado_id)).length
+  const avaliacaoCompleta = card.members.length > 0 && avaliadosNoCard >= card.members.length
+
   useEffect(() => {
     supabase.from('board_activity').select('*').eq('card_id', card.id).order('created_at', { ascending: false })
       .then(({ data }) => setActivity((data || []) as Activity[]))
@@ -1116,6 +1133,19 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
                 </span>
                 <button onClick={() => setCardState('open')} className="px-2 py-1 rounded-md text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Reabrir</button>
               </>
+            )}
+            {podeAvaliar && (
+              <button onClick={() => setAvaliando(true)}
+                title={avaliacaoCompleta ? 'Ver ou retificar a avaliação da entrega' : 'Avaliar a entrega (vai para a aba Avaliações)'}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium"
+                style={avaliacaoCompleta
+                  ? { background: 'rgba(167,139,250,0.15)', color: '#A78BFA' }
+                  : { background: 'var(--notion-accent)', color: '#fff' }}>
+                <ClipboardCheck className="w-3.5 h-3.5" />
+                {avaliacaoCompleta ? 'Avaliada'
+                  : card.members.length > 1 && avaliadosNoCard > 0 ? `Avaliar (${avaliadosNoCard}/${card.members.length})`
+                  : 'Avaliar'}
+              </button>
             )}
             {/* arquivar é só para tarefa encerrada: no banco, trabalho vivo não
                 fica na gaveta (o trigger zera o carimbo) */}
@@ -1431,6 +1461,13 @@ function CardModal({ card, lists, labels, members, userId, workspaceId, encerrad
         <RecordPanel record={registro} sources={fontes} members={members} userId={userId}
           onClose={() => setRegistro(null)}
           onSaveField={salvarCampoVinculo} onUpdateOptions={salvarOpcoesVinculo} />
+      )}
+
+      {avaliando && podeAvaliar && (
+        <AvaliarTarefa cardId={card.id} cardTitulo={card.title}
+          membros={card.members.map(id => ({ id, full_name: member(id)?.full_name || 'Sem nome' }))}
+          avaliacoes={avaliacoes || []} workspaceId={workspaceId} avaliadorId={userId}
+          onClose={() => setAvaliando(false)} onSalvo={() => void carregarAvaliacoes()} />
       )}
     </div>
   )

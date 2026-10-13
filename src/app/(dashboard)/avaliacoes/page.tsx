@@ -58,6 +58,14 @@ export default async function AvaliacoesPage() {
   })
 
   const cardTituloPorId = new Map((cardsFeitos || []).map(c => [c.id as string, c.title as string]))
+  // O cartão também avalia tarefa parada na coluna "Finalizado" sem ter sido
+  // concluída — ela não vem em cardsFeitos, então o título é buscado à parte
+  // (sem isso aparecia "(tarefa removida)").
+  const semTitulo = [...new Set((avaliacoes || []).map(a => a.card_id as string))].filter(id => !cardTituloPorId.has(id))
+  if (semTitulo.length) {
+    const { data: extras } = await supabase.from('board_cards').select('id, title').in('id', semTitulo)
+    for (const c of extras || []) cardTituloPorId.set(c.id as string, c.title as string)
+  }
 
   const feitas = (avaliacoes || []).map(a => ({
     id: a.id as string,

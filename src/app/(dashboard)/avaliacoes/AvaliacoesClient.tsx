@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { ClipboardList, CheckCircle2, BarChart3, Pencil, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { ScrollX } from '@/components/ui/ScrollX'
-import { Field, Textarea, Modal, ModalActions, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
+import { Modal, ModalActions, Tag, EmptyRow, fmtDate } from '@/components/ui/primitives'
+import { FormAvaliacao, FormState, FORM_VAZIO, bandaNota } from '@/components/avaliacoes/FormAvaliacao'
 import { Desempenho } from './Desempenho'
 
 interface PendenteItem {
@@ -18,63 +19,6 @@ interface AvaliacaoFeita {
   created_at: string; cardTitulo: string; avaliadoNome: string
 }
 
-function bandaNota(v: number): { label: string; color: string } {
-  if (v >= 10) return { label: 'Verde', color: '#10B981' }
-  if (v >= 7) return { label: 'Amarelo', color: '#F59E0B' }
-  return { label: 'Vermelho', color: '#EF4444' }
-}
-
-type FormState = { entrega_no_prazo: number; quantidade_correcao: number; observacao: string }
-
-function FormAvaliacao({ form, setForm, avaliadoNome }: {
-  form: FormState; setForm: (f: FormState) => void; avaliadoNome: string
-}) {
-  const banda = bandaNota(form.quantidade_correcao)
-  return (
-    <div className="space-y-4">
-      <Field label="Colaborador avaliado">
-        <p className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }}>
-          {avaliadoNome}
-        </p>
-      </Field>
-      <Field label="Entrega no prazo *">
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setForm({ ...form, entrega_no_prazo: 10 })}
-            className="py-2 rounded-lg text-sm font-medium border transition-all"
-            style={{
-              background: form.entrega_no_prazo === 10 ? '#10B98120' : 'var(--notion-bg-3)',
-              borderColor: form.entrega_no_prazo === 10 ? '#10B981' : 'var(--notion-border)',
-              color: form.entrega_no_prazo === 10 ? '#10B981' : 'var(--notion-text-2)',
-            }}>
-            No prazo (10)
-          </button>
-          <button type="button" onClick={() => setForm({ ...form, entrega_no_prazo: 1 })}
-            className="py-2 rounded-lg text-sm font-medium border transition-all"
-            style={{
-              background: form.entrega_no_prazo === 1 ? '#EF444420' : 'var(--notion-bg-3)',
-              borderColor: form.entrega_no_prazo === 1 ? '#EF4444' : 'var(--notion-border)',
-              color: form.entrega_no_prazo === 1 ? '#EF4444' : 'var(--notion-text-2)',
-            }}>
-            Fora do prazo (1)
-          </button>
-        </div>
-      </Field>
-      <Field label={`Quantidade de correção * — ${form.quantidade_correcao}`}>
-        <div className="flex items-center gap-3">
-          <input type="range" min={1} max={10} value={form.quantidade_correcao}
-            onChange={e => setForm({ ...form, quantidade_correcao: Number(e.target.value) })}
-            className="flex-1" />
-          <Tag label={banda.label} color={banda.color} />
-        </div>
-      </Field>
-      <Field label="Observação">
-        <Textarea rows={3} value={form.observacao} onChange={e => setForm({ ...form, observacao: e.target.value })}
-          placeholder="O que aconteceu com esse prazo..." />
-      </Field>
-    </div>
-  )
-}
-
 export function AvaliacoesClient({ pendentes, feitas, workspaceId, avaliadorId }: {
   pendentes: PendenteItem[]; feitas: AvaliacaoFeita[]; workspaceId: string; avaliadorId: string
 }) {
@@ -85,7 +29,7 @@ export function AvaliacoesClient({ pendentes, feitas, workspaceId, avaliadorId }
   const router = useRouter()
   const supabase = createClient()
 
-  const vazio: FormState = { entrega_no_prazo: 10, quantidade_correcao: 10, observacao: '' }
+  const vazio: FormState = FORM_VAZIO
   const [form, setForm] = useState<FormState>(vazio)
 
   function abrirNovo(item: PendenteItem) {
