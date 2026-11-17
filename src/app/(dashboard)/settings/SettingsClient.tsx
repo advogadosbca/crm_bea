@@ -1,18 +1,19 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { SlidersHorizontal, Check, User, KeyRound, Building2, Camera, Copy, Plus, Trash2, Loader2, Sparkles, AlertTriangle } from 'lucide-react'
+import { SlidersHorizontal, Check, User, KeyRound, Building2, Camera, Copy, Plus, Trash2, Loader2, Sparkles, AlertTriangle, Bot, ShieldCheck } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { uploadFile } from '@/lib/upload'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { Field, Input } from '@/components/ui/primitives'
+import { Aviso, useAviso } from '@/components/ui/Aviso'
 
 interface Workspace { id: string; name: string; slug: string; banner_url?: string; logo_url?: string }
 interface Profile { id: string; full_name: string; email: string; avatar_url: string; role: string; oab: string; oab_uf: string }
 interface ApiKey { id: string; name: string; key: string; created_at: string; last_used_at: string | null }
 
-type Tab = 'perfil' | 'workspace' | 'apikeys' | 'ia'
+type Tab = 'perfil' | 'workspace' | 'apikeys' | 'ia' | 'claude'
 
 export function SettingsClient({ headerAssets, workspace, canEdit, profile, apiKeys, baseUrl }: {
   headerAssets: HeaderAssets; workspace: Workspace | null; canEdit: boolean
@@ -24,6 +25,7 @@ export function SettingsClient({ headerAssets, workspace, canEdit, profile, apiK
     { id: 'workspace', label: 'Workspace', icon: Building2, show: canEdit },
     { id: 'apikeys', label: 'API Keys', icon: KeyRound, show: canEdit },
     { id: 'ia', label: 'IA', icon: Sparkles, show: canEdit },
+    { id: 'claude', label: 'Claude', icon: Bot, show: canEdit },
   ]
 
   return (
@@ -53,6 +55,7 @@ export function SettingsClient({ headerAssets, workspace, canEdit, profile, apiK
         {tab === 'workspace' && canEdit && <WorkspaceTab workspace={workspace} />}
         {tab === 'apikeys' && canEdit && <ApiKeysTab apiKeys={apiKeys} baseUrl={baseUrl} />}
         {tab === 'ia' && canEdit && <IaTab />}
+        {tab === 'claude' && canEdit && <ClaudeTab baseUrl={baseUrl} />}
       </div>
     </div>
   )
@@ -449,6 +452,113 @@ Content-Type: application/json
             Use o nó <b>HTTP Request</b> → método e URL acima → em <b>Authentication</b> escolha <i>Header Auth</i> com nome <code>Authorization</code> e valor <code>Bearer SUA_API_KEY</code> (ou Generic → Header).
           </p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- Claude (conector MCP) ---------------- */
+interface ConexaoClaude { id: string; cliente: string; pessoa: string; souEu: boolean; criadaEm: string; ultimoUso: string | null }
+
+/**
+ * Conector do Claude: endereço para colar no Claude, passo a passo e a lista de
+ * quem já conectou, com o botão de cortar o acesso. O conector só lê o CRM
+ * (src/app/api/mcp) e só sócios (admin) conseguem autorizar.
+ */
+function ClaudeTab({ baseUrl }: { baseUrl: string }) {
+  const [conexoes, setConexoes] = useState<ConexaoClaude[] | null>(null)
+  const [confirmando, setConfirmando] = useState<string | null>(null)
+  const [revogando, setRevogando] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState(false)
+  const { msg, mostrar } = useAviso()
+  const url = `${baseUrl}/api/mcp`
+
+  async function carregar() {
+    const r = await fetch('/api/claude-conexoes')
+    const j = await r.json().catch(() => ({}))
+    if (r.ok) setConexoes(j.conexoes || [])
+    else { setConexoes([]); mostrar({ tipo: 'erro', texto: j.error || 'Não consegui carregar as conexões.' }) }
+  }
+  useEffect(() => { carregar() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function copiar() {
+    navigator.clipboard.writeText(url)
+    setCopiado(true); setTimeout(() => setCopiado(false), 1500)
+  }
+
+  async function revogar(id: string) {
+    setRevogando(id)
+    const r = await fetch('/api/claude-conexoes', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+    const j = await r.json().catch(() => ({}))
+    setRevogando(null); setConfirmando(null)
+    if (!r.ok) { mostrar({ tipo: 'erro', texto: j.error || 'Não consegui revogar.' }); return }
+    setConexoes(cs => (cs || []).filter(c => c.id !== id))
+    mostrar({ tipo: 'ok', texto: 'Acesso revogado. Esse Claude não lê mais o CRM.' })
+  }
+
+  const data = (s: string) => new Date(s).toLocaleDateString('pt-BR')
+
+  return (
+    <div className="space-y-6">
+      <Aviso msg={msg} onClose={() => mostrar(null)} />
+      <div>
+        <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>Conector do Claude</h2>
+        <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>
+          Deixa o Claude do escritório consultar clientes, processos, prazos, audiências e tarefas para ajudar nas peças e no pós-venda.
+        </p>
+      </div>
+
+      <div className="flex items-start gap-3 p-3 rounded-lg border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+        <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#34D399' }} />
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--notion-text-2)' }}>
+          <b style={{ color: 'var(--notion-text)' }}>Somente leitura.</b> O Claude não consegue criar, alterar nem apagar nada no CRM.
+          Só sócios (perfil admin) conseguem autorizar, cada um com a própria conta, e o acesso pode ser cortado aqui a qualquer momento.
+        </p>
+      </div>
+
+      <Field label="Endereço do conector">
+        <div className="flex gap-2">
+          <code className="flex-1 text-xs font-mono px-3 py-2 rounded-lg truncate" style={{ background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}>{url}</code>
+          <button onClick={copiar} className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)', border: '1px solid var(--notion-border)' }}>
+            {copiado ? <><Check className="w-3 h-3" /> Copiado</> : <><Copy className="w-3 h-3" /> Copiar</>}
+          </button>
+        </div>
+      </Field>
+
+      <div className="space-y-1.5">
+        <h3 className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Como conectar</h3>
+        <ol className="list-decimal pl-5 space-y-1 text-xs" style={{ color: 'var(--notion-text-2)' }}>
+          <li>No Claude, abra <b>Configurações → Conectores</b> e clique em <b>Adicionar conector personalizado</b>. Nos planos Team e Enterprise, quem adiciona é o dono da conta.</li>
+          <li>Dê um nome (ex.: <i>CRM B&amp;A</i>) e cole o endereço acima. Não precisa preencher ID nem segredo de cliente.</li>
+          <li>Clique em <b>Conectar</b>. Abre a tela do CRM: entre com a sua conta e clique em <b>Permitir</b>.</li>
+          <li>Pronto. Numa conversa, peça por exemplo: <i>&quot;Me dá o panorama do escritório&quot;</i> ou <i>&quot;Quais os processos do cliente Fulano?&quot;</i>.</li>
+        </ol>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Quem está conectado</h3>
+        {conexoes === null && <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--notion-text-3)' }}><Loader2 className="w-3 h-3 animate-spin" /> Carregando…</p>}
+        {conexoes?.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Nenhum Claude conectado ainda.</p>}
+        {conexoes?.map(c => (
+          <div key={c.id} className="rounded-lg p-3 border flex items-center justify-between gap-3" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>{c.cliente} · {c.pessoa}{c.souEu ? ' (você)' : ''}</p>
+              <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+                Conectado em {data(c.criadaEm)}{c.ultimoUso ? ` · último uso ${new Date(c.ultimoUso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}` : ' · ainda não usado'}
+              </p>
+            </div>
+            {confirmando === c.id ? (
+              <div className="flex gap-1.5 shrink-0">
+                <button onClick={() => setConfirmando(null)} className="px-2.5 py-1.5 rounded text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Cancelar</button>
+                <button onClick={() => revogar(c.id)} disabled={revogando === c.id} className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#F87171' }}>
+                  {revogando === c.id && <Loader2 className="w-3 h-3 animate-spin" />} Cortar acesso
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmando(c.id)} title="Revogar" className="p-1.5 rounded hover:bg-[var(--notion-bg-3)] shrink-0" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /></button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

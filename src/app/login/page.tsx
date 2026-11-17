@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Check, X } from 'lucide-react'
 import { AuthShell, BotaoOuro } from '@/components/auth/AuthShell'
+import { destinoSeguro } from '@/lib/destino'
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--notion-bg-3)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)',
@@ -46,6 +47,9 @@ export default function LoginPage() {
         msg = error.message
       setError(msg); setLoading(false); return
     }
+    // veio da tela de permissão do Claude: volta para ela (ver lib/destino)
+    const volta = destinoSeguro(new URLSearchParams(window.location.search).get('next'))
+    if (volta) { window.location.assign(volta); return }
     router.push('/')
   }
 

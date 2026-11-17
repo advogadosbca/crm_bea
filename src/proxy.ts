@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { abaDaRota, podeVerAba } from '@/lib/abas'
+import { destinoSeguro } from '@/lib/destino'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -32,12 +33,16 @@ export async function proxy(request: NextRequest) {
   const isPublic = path.startsWith('/login') || path.startsWith('/forgot-password') || path.startsWith('/reset-password') || path.startsWith('/definir-senha') || path.startsWith('/auth')
 
   if (!isAuthed && !isPublic) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    const login = new URL('/login', request.url)
+    // tela de permissão do Claude: depois do login a pessoa volta para ela
+    if (path.startsWith('/oauth/')) login.searchParams.set('next', path + request.nextUrl.search)
+    return NextResponse.redirect(login)
   }
 
   // logado tentando acessar login/forgot vai pro app; reset/definir-senha são permitidos mesmo logado (sessão de convite/recuperação)
   if (isAuthed && (path.startsWith('/login') || path.startsWith('/forgot-password'))) {
-    return NextResponse.redirect(new URL('/', request.url))
+    const volta = destinoSeguro(request.nextUrl.searchParams.get('next'))
+    return NextResponse.redirect(new URL(volta || '/', request.url))
   }
 
   // aba bloqueada pelo admin (engrenagem em Membros): esconder do menu não basta,
@@ -55,7 +60,8 @@ export async function proxy(request: NextRequest) {
 }
 
 // /email/ fica de fora: são os modelos de e-mail que o Supabase Auth baixa
-// sem login (GOTRUE_MAILER_TEMPLATES_*), e o logo que vai dentro deles
+// sem login (GOTRUE_MAILER_TEMPLATES_*), e o logo que vai dentro deles.
+// .well-known/ também: são os metadados OAuth que o Claude lê sem login.
 export const config = {
-  matcher: ['/((?!api|email/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: ['/((?!api|email/|\\.well-known/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }
