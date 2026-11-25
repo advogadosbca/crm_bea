@@ -154,12 +154,12 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
   const [editing, setEditing] = useState(false)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  const openAt = (e: React.MouseEvent, w = 240) => {
+  const openAt = (e: React.MouseEvent, w = 240, h = 330) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
     const vh = typeof window !== 'undefined' ? window.innerHeight : 800
     const left = Math.max(8, Math.min(r.left, vw - w - 8))
-    const top = Math.min(r.bottom + 4, vh - 330) // não passa do rodapé
+    const top = Math.min(r.bottom + 4, vh - h) // não passa do rodapé
     setPos({ left, top: Math.max(8, top) })
     setOpen(o => !o)
   }
@@ -267,7 +267,7 @@ export function Cell({ column, value, members, rowMeta, onChange, onUpdateOption
     const horaParte = config.withTime ? v.slice(11, 16) : ''
     return (
       <div className="relative w-full">
-        <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={e => { if (!readOnly) openAt(e, 264) }}>
+        <div className={cellBase + ' font-mono text-xs'} style={txt} onClick={e => { if (!readOnly) openAt(e, 264, config.withTime ? 420 : 380) }}>
           {v ? (config.withTime
             ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
             : new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')) : ''}
