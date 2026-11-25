@@ -1,8 +1,12 @@
 import { autenticarBearer, naoAutorizado, preflightCors } from '@/lib/mcp/oauth'
 import { FERRAMENTAS, NOMES_FERRAMENTAS, executar } from '@/lib/mcp/ferramentas'
+import { FERRAMENTAS_ESCRITA, NOMES_ESCRITA, Recusa, executarEscrita } from '@/lib/mcp/escrita'
 
 /**
- * Conector do Claude — servidor MCP (Streamable HTTP, sem estado, SÓ LEITURA).
+ * Conector do Claude — servidor MCP (Streamable HTTP, sem estado).
+ *
+ * Lê sempre; grava (src/lib/mcp/escrita.ts) só quando um sócio ligou a edição
+ * daquela conexão em Configurações → Claude (sql/016).
  *
  * Endereço para colar no Claude: https://<crm>/api/mcp
  * Login: OAuth do próprio CRM (src/lib/mcp/oauth.ts) — só sócios (admin).
@@ -19,11 +23,17 @@ export const maxDuration = 60
 
 const VERSOES = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
 
-const INSTRUCOES = [
-  'CRM do escritório de advocacia Bernardes & Azevedo, em modo SOMENTE LEITURA: nada pode ser criado, alterado ou apagado por aqui.',
+const instrucoes = (podeEditar: boolean) => [
+  podeEditar
+    ? 'CRM do escritório de advocacia Bernardes & Azevedo. Esta conexão LÊ e também GRAVA (comentar, editar campos, cadastrar registros, criar e comentar tarefas). Não existe forma de apagar nada por aqui.'
+    : 'CRM do escritório de advocacia Bernardes & Azevedo. Esta conexão está em modo SOMENTE LEITURA: as ferramentas de gravação recusam até um sócio ligar a edição em Configurações → Claude.',
   'Comece por panorama_escritorio para conhecer as bases e os campos. Para um cliente ou processo: buscar → ver_registro (traz processos, pendências, audiências, comentários e tarefas ligados).',
   'Os dados são de clientes reais (sigilo profissional e LGPD): use só para o trabalho do escritório.',
   'Prazos do CRM são sugestões já conferidas pelo advogado; não recalcule prazo processual por conta própria.',
+  ...(podeEditar ? [
+    'Para GRAVAR: antes de cada alteração, diga ao usuário exatamente o que vai gravar e onde, e só grave com o OK dele. Grave apenas o que ele informou — nunca deduza nem invente dado de cliente. Procure o registro (buscar/ver_registro) antes de cadastrar, para não duplicar.',
+    'Cada gravação sai no nome do sócio conectado, marcada "via Claude" na Auditoria do CRM.',
+  ] : []),
 ].join('\n')
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> }
@@ -73,7 +83,7 @@ async function tratar(m: Rpc, ctx: NonNullable<Awaited<ReturnType<typeof autenti
         protocolVersion: VERSOES.includes(pedida) ? pedida : VERSOES[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'crm-bernardes-azevedo', title: 'CRM Bernardes & Azevedo', version: '1.0.0' },
-        instructions: INSTRUCOES,
+        instructions: instrucoes(ctx.podeEditar),
       })
     }
     case 'ping':
@@ -82,17 +92,19 @@ async function tratar(m: Rpc, ctx: NonNullable<Awaited<ReturnType<typeof autenti
     case 'notifications/cancelled':
       return ok(m.id, {})
     case 'tools/list':
-      return ok(m.id, { tools: FERRAMENTAS })
+      return ok(m.id, { tools: [...FERRAMENTAS, ...FERRAMENTAS_ESCRITA] })
     case 'tools/call': {
       const nome = String(p.name || '')
-      if (!NOMES_FERRAMENTAS.has(nome)) return falha(m.id, -32602, `Ferramenta desconhecida: ${nome}`)
+      const escrita = NOMES_ESCRITA.has(nome)
+      if (!escrita && !NOMES_FERRAMENTAS.has(nome)) return falha(m.id, -32602, `Ferramenta desconhecida: ${nome}`)
       const args = (p.arguments && typeof p.arguments === 'object' ? p.arguments : {}) as Record<string, unknown>
       try {
-        const texto = await executar(nome, args, ctx)
+        const texto = escrita ? await executarEscrita(nome, args, ctx) : await executar(nome, args, ctx)
         return ok(m.id, { content: [{ type: 'text', text: texto }], isError: false })
       } catch (e) {
         // erro da ferramenta vai como resultado, para o Claude ler e corrigir o pedido
-        return ok(m.id, { content: [{ type: 'text', text: `Erro ao consultar o CRM: ${(e as Error).message}` }], isError: true })
+        const msg = e instanceof Recusa ? e.message : `Erro no CRM: ${(e as Error).message}`
+        return ok(m.id, { content: [{ type: 'text', text: msg }], isError: true })
       }
     }
     case 'resources/list':

@@ -79,11 +79,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<Bus
           <li className="flex gap-2"><Eye className="w-4 h-4 shrink-0" style={{ color: '#34D399' }} />
             Pode <b>ler</b> clientes, processos, prazos, audiências, tarefas e as demais tabelas do CRM.</li>
           <li className="flex gap-2"><Ban className="w-4 h-4 shrink-0" style={{ color: '#F87171' }} />
-            <span><b>Não pode</b> criar, alterar nem apagar nada. O acesso é somente leitura.</span></li>
+            <span>Começa <b>somente leitura</b>: não cria nem altera nada até um sócio ligar <b>Pode editar</b> nesta conexão em Configurações → Claude.
+              Mesmo assim, <b>nunca</b> apaga nem arquiva registros.</span></li>
         </ul>
 
         <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
-          Os dados consultados passam pelo Claude. Para cortar o acesso, use Settings → Claude no CRM.
+          Os dados consultados passam pelo Claude. Para cortar o acesso, use Configurações → Claude no CRM.
         </p>
 
         <form method="post" action="/api/oauth/autorizar" className="flex gap-2 pt-1">

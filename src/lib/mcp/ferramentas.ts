@@ -5,8 +5,9 @@ import {
 } from './dados'
 
 /**
- * Ferramentas do conector do Claude. TODAS SÓ LEEM — nenhuma grava, altera ou
- * apaga. Cada uma devolve texto pronto para o Claude ler (markdown simples),
+ * Ferramentas de LEITURA do conector do Claude — nenhuma daqui grava, altera
+ * ou apaga. As de gravação moram em ./escrita.ts e só funcionam com a edição
+ * ligada para a conexão (sql/016). Cada uma devolve texto pronto para o Claude ler (markdown simples),
  * com os ids entre colchetes para ele poder abrir o registro depois.
  *
  * Para adicionar uma ferramenta: entra na lista FERRAMENTAS com nome, descrição
@@ -147,12 +148,12 @@ const fontesSemDados = (r: Retrato) => r.fontes.filter(f => f.columns.length)
 
 /* ------------------------------------------------------------ ferramentas */
 
-async function panorama(ctx: Contexto & { nome: string }): Promise<string> {
+async function panorama(ctx: Contexto & { nome: string; podeEditar?: boolean }): Promise<string> {
   const r = await carregarRetrato(ctx)
   const q = await carregarQuadro(ctx, r.pessoas)
   const out: string[] = []
   out.push(`# ${r.workspaceNome} — panorama do CRM`)
-  out.push(`Consulta feita por: ${ctx.nome || 'sócio'} (acesso somente leitura). Hoje: ${dataBR(hojeISO())}.`)
+  out.push(`Consulta feita por: ${ctx.nome || 'sócio'} (${ctx.podeEditar ? 'leitura e edição' : 'somente leitura'}). Hoje: ${dataBR(hojeISO())}.`)
 
   out.push(`\n## Equipe (${r.equipe.length})`)
   const papel: Record<string, string> = { super_admin: 'sócio/admin', admin: 'sócio/admin', colaborador: 'colaborador', visualizador: 'visualizador' }
@@ -192,6 +193,11 @@ async function panorama(ctx: Contexto & { nome: string }): Promise<string> {
   out.push('- ver_registro: ficha completa (campos, comentários, registros ligados e tarefas).')
   out.push('- listar_registros: listar uma base com filtros (ex.: processos sem "Atualização").')
   out.push('- listar_tarefas / ver_tarefa: quadro de tarefas. agenda_prazos: prazos e audiências do período.')
+  if (ctx.podeEditar) {
+    out.push(`\n## Como gravar (edição liberada para esta conexão)`)
+    out.push('- comentar_registro / comentar_tarefa: registrar o que aconteceu. editar_registro: mudar campos. cadastrar_registro: registro novo (checa duplicado). criar_tarefa: tarefa no quadro.')
+    out.push('- Sempre confirme com o usuário o que vai gravar. Nada pode ser apagado ou arquivado por aqui; campos "somente admins" não são alterados.')
+  }
   return out.join('\n')
 }
 
@@ -484,7 +490,7 @@ async function agendaPrazos(ctx: Contexto, a: Args): Promise<string> {
 
 /* -------------------------------------------------------------- despacho */
 
-export async function executar(nome: string, args: Args, ctx: Contexto & { nome: string }): Promise<string> {
+export async function executar(nome: string, args: Args, ctx: Contexto & { nome: string; podeEditar?: boolean }): Promise<string> {
   let texto: string
   switch (nome) {
     case 'panorama_escritorio': texto = await panorama(ctx); break

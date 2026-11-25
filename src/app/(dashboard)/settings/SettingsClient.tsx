@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase'
 import { uploadFile } from '@/lib/upload'
 import { useRouter } from 'next/navigation'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
-import { Field, Input } from '@/components/ui/primitives'
+import { Field, Input, Switch } from '@/components/ui/primitives'
 import { Aviso, useAviso } from '@/components/ui/Aviso'
 
 interface Workspace { id: string; name: string; slug: string; banner_url?: string; logo_url?: string }
@@ -458,17 +458,23 @@ Content-Type: application/json
 }
 
 /* ---------------- Claude (conector MCP) ---------------- */
-interface ConexaoClaude { id: string; cliente: string; pessoa: string; souEu: boolean; criadaEm: string; ultimoUso: string | null }
+interface ConexaoClaude {
+  id: string; cliente: string; pessoa: string; souEu: boolean; criadaEm: string; ultimoUso: string | null
+  podeEditar: boolean; edicaoPor: string | null; edicaoEm: string | null
+}
 
 /**
  * Conector do Claude: endereço para colar no Claude, passo a passo e a lista de
- * quem já conectou, com o botão de cortar o acesso. O conector só lê o CRM
- * (src/app/api/mcp) e só sócios (admin) conseguem autorizar.
+ * quem já conectou, com o botão de cortar o acesso. Toda conexão nasce só
+ * leitura; a gravação (src/lib/mcp/escrita.ts) é ligada por conexão aqui, por
+ * um sócio (sql/016). Só sócios (admin) conseguem autorizar.
  */
 function ClaudeTab({ baseUrl }: { baseUrl: string }) {
   const [conexoes, setConexoes] = useState<ConexaoClaude[] | null>(null)
   const [confirmando, setConfirmando] = useState<string | null>(null)
   const [revogando, setRevogando] = useState<string | null>(null)
+  const [liberando, setLiberando] = useState<string | null>(null)
+  const [mudandoEdicao, setMudandoEdicao] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
   const { msg, mostrar } = useAviso()
   const url = `${baseUrl}/api/mcp`
@@ -496,6 +502,16 @@ function ClaudeTab({ baseUrl }: { baseUrl: string }) {
     mostrar({ tipo: 'ok', texto: 'Acesso revogado. Esse Claude não lê mais o CRM.' })
   }
 
+  async function mudarEdicao(id: string, podeEditar: boolean) {
+    setMudandoEdicao(id)
+    const r = await fetch('/api/claude-conexoes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, podeEditar }) })
+    const j = await r.json().catch(() => ({}))
+    setMudandoEdicao(null); setLiberando(null)
+    if (!r.ok) { mostrar({ tipo: 'erro', texto: j.error || 'Não consegui alterar.' }); return }
+    setConexoes(cs => (cs || []).map(c => c.id === id ? { ...c, podeEditar, edicaoPor: 'você', edicaoEm: new Date().toISOString() } : c))
+    mostrar({ tipo: 'ok', texto: podeEditar ? 'Edição liberada para esta conexão.' : 'Esta conexão voltou a ser somente leitura.' })
+  }
+
   const data = (s: string) => new Date(s).toLocaleDateString('pt-BR')
 
   return (
@@ -511,8 +527,11 @@ function ClaudeTab({ baseUrl }: { baseUrl: string }) {
       <div className="flex items-start gap-3 p-3 rounded-lg border" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
         <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#34D399' }} />
         <p className="text-xs leading-relaxed" style={{ color: 'var(--notion-text-2)' }}>
-          <b style={{ color: 'var(--notion-text)' }}>Somente leitura.</b> O Claude não consegue criar, alterar nem apagar nada no CRM.
-          Só sócios (perfil admin) conseguem autorizar, cada um com a própria conta, e o acesso pode ser cortado aqui a qualquer momento.
+          <b style={{ color: 'var(--notion-text)' }}>Começa somente leitura.</b> Toda conexão nova só consulta. Um sócio pode ligar <b>Pode editar</b> numa conexão
+          para o Claude também comentar, editar campos, cadastrar registros e criar tarefas.
+          Mesmo com a edição ligada, ele <b>não apaga nem arquiva</b> nada, não mexe em colunas, membros e permissões e não altera campos &quot;somente admins&quot; (honorários).
+          Cada alteração sai no nome do sócio conectado, marcada &quot;via Claude&quot; na Auditoria, com o valor anterior guardado.
+          Só sócios (perfil admin) conseguem autorizar, e o acesso pode ser cortado aqui a qualquer momento.
         </p>
       </div>
 
@@ -540,7 +559,8 @@ function ClaudeTab({ baseUrl }: { baseUrl: string }) {
         {conexoes === null && <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--notion-text-3)' }}><Loader2 className="w-3 h-3 animate-spin" /> Carregando…</p>}
         {conexoes?.length === 0 && <p className="text-xs" style={{ color: 'var(--notion-text-3)' }}>Nenhum Claude conectado ainda.</p>}
         {conexoes?.map(c => (
-          <div key={c.id} className="rounded-lg p-3 border flex items-center justify-between gap-3" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+          <div key={c.id} className="rounded-lg p-3 border space-y-2.5" style={{ background: 'var(--notion-bg-2)', borderColor: 'var(--notion-border)' }}>
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>{c.cliente} · {c.pessoa}{c.souEu ? ' (você)' : ''}</p>
               <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
@@ -557,6 +577,32 @@ function ClaudeTab({ baseUrl }: { baseUrl: string }) {
             ) : (
               <button onClick={() => setConfirmando(c.id)} title="Revogar" className="p-1.5 rounded hover:bg-[var(--notion-bg-3)] shrink-0" style={{ color: '#F87171' }}><Trash2 className="w-3.5 h-3.5" /></button>
             )}
+          </div>
+          <div className="flex items-center justify-between gap-3 pt-2.5" style={{ borderTop: '1px solid var(--notion-border)' }}>
+            <div className="min-w-0">
+              <p className="text-xs font-medium" style={{ color: c.podeEditar ? 'var(--notion-accent)' : 'var(--notion-text-2)' }}>
+                {c.podeEditar ? 'Pode editar' : 'Somente leitura'}
+              </p>
+              <p className="text-[11px]" style={{ color: 'var(--notion-text-3)' }}>
+                {c.podeEditar
+                  ? 'Comenta, edita campos, cadastra registros e cria tarefas. Não apaga nada.'
+                  : 'Só consulta o CRM.'}
+                {c.edicaoPor && c.edicaoEm ? ` · alterado por ${c.edicaoPor} em ${data(c.edicaoEm)}` : ''}
+              </p>
+            </div>
+            {liberando === c.id ? (
+              <div className="flex gap-1.5 shrink-0">
+                <button onClick={() => setLiberando(null)} className="px-2.5 py-1.5 rounded text-xs" style={{ background: 'var(--notion-bg-3)', color: 'var(--notion-text-2)' }}>Cancelar</button>
+                <button onClick={() => mudarEdicao(c.id, true)} disabled={mudandoEdicao === c.id} className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium text-white" style={{ background: 'var(--notion-accent)' }}>
+                  {mudandoEdicao === c.id && <Loader2 className="w-3 h-3 animate-spin" />} Liberar edição
+                </button>
+              </div>
+            ) : (
+              <Switch checked={c.podeEditar} disabled={mudandoEdicao === c.id}
+                title={c.podeEditar ? 'Voltar para somente leitura' : 'Permitir que este Claude grave no CRM'}
+                onChange={v => (v ? setLiberando(c.id) : mudarEdicao(c.id, false))} />
+            )}
+          </div>
           </div>
         ))}
       </div>

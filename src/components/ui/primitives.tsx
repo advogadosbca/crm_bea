@@ -109,3 +109,17 @@ export function fmtDate(d?: string | null) {
 export function fmtBRL(v?: number | null) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 }
+
+/** Interruptor liga/desliga no tema do CRM (ligado = --notion-accent). */
+export function Switch({ checked, onChange, disabled, title }: {
+  checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; title?: string
+}) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} title={title} disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="relative w-9 h-5 rounded-full transition-colors shrink-0 disabled:opacity-50"
+      style={{ background: checked ? 'var(--notion-accent)' : 'var(--notion-bg-4)', border: '1px solid var(--notion-border)' }}>
+      <span className="absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all" style={{ left: checked ? 18 : 2 }} />
+    </button>
+  )
+}

@@ -145,6 +145,8 @@ export interface ContextoMcp {
   role: string
   isAdmin: boolean
   conexaoId: string
+  /** sql/016: um sócio liberou gravação para esta conexão em Configurações → Claude */
+  podeEditar: boolean
 }
 
 export async function autenticarBearer(req: Request): Promise<ContextoMcp | null> {
@@ -156,7 +158,7 @@ export async function autenticarBearer(req: Request): Promise<ContextoMcp | null
 
   const admin = adminClient()
   const { data: t } = await admin.from('mcp_oauth_tokens')
-    .select('id, profile_id, workspace_id, access_expires_at, revoked_at')
+    .select('id, profile_id, workspace_id, access_expires_at, revoked_at, pode_editar')
     .eq('access_hash', sha256(token)).maybeSingle()
   if (!t || t.revoked_at || Date.parse(t.access_expires_at) <= Date.now()) return null
 
@@ -176,6 +178,7 @@ export async function autenticarBearer(req: Request): Promise<ContextoMcp | null
     role: perfil.role,
     isAdmin: ['admin', 'super_admin'].includes(perfil.role),
     conexaoId: t.id,
+    podeEditar: t.pode_editar === true,
   }
 }
 

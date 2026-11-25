@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { History, Plus, Trash2, ChevronDown, Search, Loader2 } from 'lucide-react'
+import { History, Plus, Trash2, ChevronDown, Search, Loader2, Pencil, MessageSquare, Bot } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { EditableHeader, HeaderAssets } from '@/components/layout/EditableHeader'
 import { initials, personColor } from '@/lib/people'
@@ -41,7 +41,21 @@ const TIPOS: Record<string, string> = {
 const tipoLabel = (t: string) => TIPOS[t] || t
 
 type Periodo = '7' | '30' | 'tudo'
-type Acao = 'tudo' | 'criou' | 'excluiu'
+type Acao = 'tudo' | 'criou' | 'editou' | 'excluiu' | 'claude'
+
+const VIA_CLAUDE = ' · via Claude'
+const peloClaude = (l: AuditLog) => (l.context || '').includes(VIA_CLAUDE)
+
+/** como cada ação aparece na linha do tempo. Ação sem visual próprio (ex.: "aprovou comunicação") sai com o próprio texto. */
+function visualDaAcao(action: string): { rotulo: string; cor: string; Icone: typeof Plus } {
+  switch (action) {
+    case 'criou': return { rotulo: 'Adicionou', cor: '#10B981', Icone: Plus }
+    case 'excluiu': return { rotulo: 'Excluiu', cor: '#F87171', Icone: Trash2 }
+    case 'editou': return { rotulo: 'Editou', cor: '#60A5FA', Icone: Pencil }
+    case 'comentou': return { rotulo: 'Comentou em', cor: '#A78BFA', Icone: MessageSquare }
+    default: return { rotulo: action.charAt(0).toUpperCase() + action.slice(1), cor: '#9CA3AF', Icone: History }
+  }
+}
 
 export function AuditoriaClient({ headerAssets, logs: iniciais, members, colNames, pageSize }: {
   headerAssets: HeaderAssets
@@ -82,7 +96,7 @@ export function AuditoriaClient({ headerAssets, logs: iniciais, members, colName
     const q = busca.trim().toLowerCase()
     const corte = periodo === 'tudo' ? 0 : Date.now() - Number(periodo) * 864e5
     return logs.filter(l => {
-      if (acao !== 'tudo' && l.action !== acao) return false
+      if (acao === 'claude' ? !peloClaude(l) : acao !== 'tudo' && l.action !== acao) return false
       if (autor !== 'tudo' && l.user_id !== autor) return false
       if (corte && new Date(l.created_at).getTime() < corte) return false
       if (!q) return true
@@ -130,7 +144,8 @@ export function AuditoriaClient({ headerAssets, logs: iniciais, members, colName
               style={{ background: 'var(--notion-bg-2)', color: 'var(--notion-text)', border: '1px solid var(--notion-border)' }} />
           </div>
           <Chips valor={acao} setValor={v => setAcao(v as Acao)} opcoes={[
-            { v: 'tudo', label: 'Tudo' }, { v: 'criou', label: 'Adicionados' }, { v: 'excluiu', label: 'Excluídos' },
+            { v: 'tudo', label: 'Tudo' }, { v: 'criou', label: 'Adicionados' }, { v: 'editou', label: 'Editados' },
+            { v: 'excluiu', label: 'Excluídos' }, { v: 'claude', label: 'Via Claude' },
           ]} />
           <Chips valor={periodo} setValor={v => setPeriodo(v as Periodo)} opcoes={[
             { v: '7', label: '7 dias' }, { v: '30', label: '30 dias' }, { v: 'tudo', label: 'Tudo' },
@@ -154,8 +169,10 @@ export function AuditoriaClient({ headerAssets, logs: iniciais, members, colName
             <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--notion-border)' }}>
               {itens.map(l => {
                 const criou = l.action === 'criou'
-                const cor = criou ? '#10B981' : '#F87171'
-                const Icone = criou ? Plus : Trash2
+                const { rotulo, cor, Icone } = visualDaAcao(l.action)
+                const claude = peloClaude(l)
+                const contexto = (l.context || '').replace(VIA_CLAUDE, '')
+                const antesDepois = !!(l.old_data && l.new_data)
                 const dados = l.old_data || l.new_data
                 const expandido = aberto === l.id
                 return (
@@ -168,13 +185,19 @@ export function AuditoriaClient({ headerAssets, logs: iniciais, members, colName
                       </span>
 
                       <span className="text-sm min-w-0 flex-1" style={{ color: 'var(--notion-text)' }}>
-                        <b style={{ color: cor }}>{criou ? 'Adicionou' : 'Excluiu'}</b>
+                        <b style={{ color: cor }}>{rotulo}</b>
                         {' '}
                         <span style={{ color: 'var(--notion-text-3)' }}>{tipoLabel(l.table_name).toLowerCase()}</span>
                         {' '}
                         <span className="font-medium">{l.record_label || '(sem título)'}</span>
-                        {l.context && l.context !== l.table_name && (
-                          <span style={{ color: 'var(--notion-text-3)' }}> em {l.context}</span>
+                        {contexto && contexto !== l.table_name && (
+                          <span style={{ color: 'var(--notion-text-3)' }}> em {contexto}</span>
+                        )}
+                        {claude && (
+                          <span className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium align-middle"
+                            style={{ background: '#D9775722', color: '#D97757' }} title="Feito pelo Claude, no nome desta pessoa">
+                            <Bot className="w-3 h-3" /> via Claude
+                          </span>
                         )}
                       </span>
 
@@ -198,10 +221,25 @@ export function AuditoriaClient({ headerAssets, logs: iniciais, members, colName
 
                     {expandido && dados && (
                       <div className="px-4 pb-3 pt-1">
-                        <p className="text-[11px] mb-1.5" style={{ color: 'var(--notion-text-3)' }}>
-                          Conteúdo do registro {criou ? 'criado' : 'excluído'} — serve para conferência e recuperação manual.
-                        </p>
-                        <Detalhes dados={dados} colNames={colNames} />
+                        {antesDepois ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[11px] mb-1.5" style={{ color: 'var(--notion-text-3)' }}>Antes — serve para desfazer à mão</p>
+                              <Detalhes dados={l.old_data!} colNames={colNames} />
+                            </div>
+                            <div>
+                              <p className="text-[11px] mb-1.5" style={{ color: 'var(--notion-text-3)' }}>Depois</p>
+                              <Detalhes dados={l.new_data!} colNames={colNames} />
+                            </div>
+                          </div>
+                        ) : (<>
+                          <p className="text-[11px] mb-1.5" style={{ color: 'var(--notion-text-3)' }}>
+                            {l.action === 'criou' || l.action === 'excluiu'
+                              ? <>Conteúdo do registro {criou ? 'criado' : 'excluído'} — serve para conferência e recuperação manual.</>
+                              : 'Detalhes'}
+                          </p>
+                          <Detalhes dados={dados} colNames={colNames} />
+                        </>)}
                       </div>
                     )}
                   </div>

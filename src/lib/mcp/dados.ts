@@ -6,11 +6,11 @@ import {
 } from '@/types/dynamic'
 
 /**
- * Leitura do CRM para o conector do Claude — SÓ LEITURA, sempre.
+ * Leitura do CRM para o conector do Claude.
  *
  * Tudo aqui é `select`. O conector usa a service role (o Claude não tem sessão
- * do Supabase), então quem garante que nada é gravado é este arquivo e as
- * ferramentas que o usam: não existe caminho de escrita no /api/mcp.
+ * do Supabase); a gravação fica separada em ./escrita.ts, que só age com a
+ * edição ligada para a conexão (sql/016).
  *
  * Os dados do escritório moram quase todos nas tabelas dinâmicas (db_tables /
  * db_columns / db_rows): Clientes, Leads, Processos Judiciais, Pendências,
